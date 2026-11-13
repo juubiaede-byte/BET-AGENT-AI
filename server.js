@@ -8,6 +8,10 @@ app.use(express.json({ limit: "100kb" }));
 
 const PORT = process.env.PORT || 3000;
 
+// =====================================
+// CONFIGURATION
+// =====================================
+
 const MAX_HOUR = 60;
 const MAX_DAY = 180;
 const MAX_ANALYSIS_AGE = 24 * 60 * 60 * 1000;
@@ -15,7 +19,9 @@ const CACHE_FIXTURES_MS = 5 * 60 * 1000;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
+
 const FOOTBALL_DATA_TOKEN = process.env.FOOTBALL_DATA_TOKEN;
+const FOOTBALL_CHARTS_KEY = process.env.FOOTBALL_CHARTS_KEY;
 
 // =====================================
 // SUPABASE
@@ -287,7 +293,7 @@ async function footballDataFetch(endpoint) {
   );
 }
 
-// Test et découverte des compétitions accessibles
+// Test Football-Data.org
 app.get("/api/providers/football-data/test", async (req, res) => {
   try {
     const result = await footballDataFetch("competitions/");
@@ -324,6 +330,60 @@ app.get("/api/providers/football-data/test", async (req, res) => {
 });
 
 // =====================================
+// FOOTBALL CHARTS
+// =====================================
+
+async function footballChartsFetch(endpoint) {
+  if (!FOOTBALL_CHARTS_KEY) {
+    const error = new Error(
+      "Clé FOOTBALL_CHARTS_KEY manquante dans Render."
+    );
+    error.status = 503;
+    throw error;
+  }
+
+  return trackedFetch(
+    `https://footballcharts-backend.onrender.com/api/v1/${endpoint}`,
+    "FOOTBALL_CHARTS",
+    {
+      headers: {
+        Authorization: `Bearer ${FOOTBALL_CHARTS_KEY}`
+      }
+    }
+  );
+}
+
+// Test et récupération des championnats
+app.get("/api/providers/football-charts/test", async (req, res) => {
+  try {
+    const result = await footballChartsFetch("leagues/");
+
+    const data = result.data;
+
+    const leagues = Array.isArray(data)
+      ? data
+      : data.leagues || data.results || [];
+
+    res.json({
+      provider: "Football Charts",
+      status: "connected",
+      leaguesAvailable: leagues.length,
+      leagues,
+      cache: result.fromCache,
+      quotas: await getUsage()
+    });
+
+  } catch (error) {
+    res.status(error.status || 500).json({
+      provider: "Football Charts",
+      status: "error",
+      message: error.message,
+      quotas: await getUsage().catch(() => null)
+    });
+  }
+});
+
+// =====================================
 // SERVEUR
 // =====================================
 
@@ -331,9 +391,12 @@ app.get("/", (req, res) => {
   res.json({
     app: "BET AGENT AI",
     status: "Serveur connecté",
-    version: "4.0",
+    version: "4.1",
     database: "Supabase",
-    providers: ["Football-Data.org"]
+    providers: [
+      "Football-Data.org",
+      "Football Charts"
+    ]
   });
 });
 
