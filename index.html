@@ -6,73 +6,279 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#07110f">
 <title>BET AGENT AI</title>
+
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#07110f;color:#f3faf6;font-family:Arial,sans-serif}
-header{padding:22px;background:#101d19;border-bottom:1px solid #20362e}
+
+body{
+margin:0;
+background:#07110f;
+color:#f3faf6;
+font-family:Arial,sans-serif
+}
+
+header{
+padding:22px;
+background:#101d19;
+border-bottom:1px solid #20362e
+}
+
 h1{color:#35e39a;font-size:23px;margin:0}
 header p{color:#91a69d;font-size:12px}
-main{padding:18px;max-width:650px;margin:auto}
-.hero{background:linear-gradient(135deg,#16432e,#102b42);padding:23px;border-radius:18px;margin-bottom:20px}
+
+main{
+padding:18px;
+max-width:650px;
+margin:auto
+}
+
+.hero{
+background:linear-gradient(135deg,#16432e,#102b42);
+padding:23px;
+border-radius:18px;
+margin-bottom:20px
+}
+
 .hero h2{font-size:27px}
 .hero p{color:#c0d4ca;font-size:14px;line-height:1.6}
-button{background:#35e39a;color:#07110f;border:0;padding:12px 18px;border-radius:10px;font-weight:bold}
-h3{margin-top:25px}
-.card{background:#101d19;border:1px solid #20362e;padding:17px;border-radius:15px;margin:12px 0}
+
+button{
+background:#35e39a;
+color:#07110f;
+border:0;
+padding:12px 18px;
+border-radius:10px;
+font-weight:bold;
+cursor:pointer
+}
+
+button:disabled{opacity:.5}
+
+h3{margin-top:15px}
+
+.card{
+background:#101d19;
+border:1px solid #20362e;
+padding:17px;
+border-radius:15px;
+margin:12px 0
+}
+
 .label{color:#91a69d;font-size:12px}
 .green{color:#35e39a}
-nav{position:fixed;bottom:0;left:0;right:0;background:#101d19;display:flex;justify-content:space-around;padding:14px 5px;border-top:1px solid #20362e}
-nav button{background:transparent;color:#35e39a;padding:8px;font-size:12px}
-section{display:none;padding-bottom:75px}
+
+nav{
+position:fixed;
+bottom:0;
+left:0;
+right:0;
+background:#101d19;
+display:flex;
+justify-content:space-around;
+padding:14px 5px;
+border-top:1px solid #20362e;
+z-index:10
+}
+
+nav button{
+background:transparent;
+color:#35e39a;
+padding:8px;
+font-size:12px
+}
+
+section{display:none;padding-bottom:85px}
 section.active{display:block}
-.notice{color:#c0d4ca;font-size:12px;line-height:1.6}
+
+.notice{
+color:#c0d4ca;
+font-size:12px;
+line-height:1.6
+}
+
+.match{
+background:#101d19;
+border:1px solid #20362e;
+padding:16px;
+border-radius:14px;
+margin:12px 0
+}
+
+.match-league{
+color:#35e39a;
+font-size:12px;
+margin-bottom:12px
+}
+
+.match-teams{
+display:grid;
+grid-template-columns:1fr auto 1fr;
+align-items:center;
+gap:8px;
+text-align:center;
+font-weight:bold
+}
+
+.match-teams span:last-child{text-align:center}
+
+.score{
+font-size:19px;
+color:#35e39a;
+white-space:nowrap
+}
+
+.match-info{
+color:#91a69d;
+font-size:11px;
+margin-top:12px;
+text-align:center
+}
+
+.controls{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+margin:12px 0
+}
+
+input{
+background:#101d19;
+border:1px solid #20362e;
+color:white;
+padding:11px;
+border-radius:9px;
+flex:1;
+min-width:130px
+}
+
+.loading{
+text-align:center;
+padding:25px;
+color:#35e39a
+}
+
+.error{color:#ff8585}
 </style>
 </head>
+
 <body>
+
 <header>
 <h1>⚽ BET AGENT AI</h1>
 <p>FOOTBALL INTELLIGENCE • ANALYSE & PRÉDICTIONS</p>
 </header>
 
 <main>
+
 <section id="home" class="active">
+
 <div class="hero">
 <p class="green">ANALYSE FOOTBALL</p>
 <h2>Les données avant les décisions.</h2>
-<p>Découvre une nouvelle façon d'analyser le football grâce aux statistiques et à l'intelligence artificielle.</p>
+<p>
+Découvre une nouvelle façon d'analyser le football grâce
+aux statistiques et à l'intelligence artificielle.
+</p>
 <button onclick="show('matches')">Voir les matchs</button>
 </div>
+
 <h3>Tableau de bord</h3>
-<div class="card"><span class="label">Matchs suivis</span><h2>—</h2><p class="label">En attente des données API</p></div>
-<div class="card"><span class="label">Analyses IA</span><h2 class="green">—</h2><p class="label">Moteur à construire</p></div>
-<div class="card"><span class="label">Cotes comparées</span><h2>—</h2><p class="label">Connexion à venir</p></div>
-<div class="card"><p class="notice">ℹ️ Version de démonstration. Aucun match ou pronostic fictif n'est présenté comme réel.</p></div>
+
+<div class="card">
+<span class="label">Matchs disponibles</span>
+<h2 id="dashboard-count">—</h2>
+<p class="label">Données API-Football</p>
+</div>
+
+<div class="card">
+<span class="label">Analyses IA</span>
+<h2 class="green">En préparation</h2>
+<p class="label">Moteur à construire</p>
+</div>
+
+<div class="card">
+<span class="label">Cotes comparées</span>
+<h2>À venir</h2>
+<p class="label">Connexion des bookmakers</p>
+</div>
+
+<div class="card">
+<p class="notice">
+ℹ️ Les informations affichées proviennent des fournisseurs
+de données. Les analyses et pronostics seront ajoutés
+progressivement.
+</p>
+</div>
+
 </section>
+
 
 <section id="matches">
-<h2>⚽ Matchs</h2>
-<div class="card"><p class="notice">Les vrais matchs apparaîtront ici après la connexion des fournisseurs API.</p></div>
+
+<h2>⚽ Matchs de football</h2>
+
+<div class="card">
+<p class="label">CHOISIR UNE DATE</p>
+
+<div class="controls">
+<input type="date" id="match-date">
+<button id="refresh-button" onclick="loadMatches()">
+Actualiser
+</button>
+</div>
+
+<p class="notice">
+Les rencontres sont récupérées directement depuis API-Football.
+</p>
+</div>
+
+<div id="matches-list">
+<div class="loading">Chargement des matchs...</div>
+</div>
+
 </section>
+
 
 <section id="analysis">
+
 <h2>✦ Analyse IA</h2>
+
 <div class="card">
 <h3>Intelligence artificielle</h3>
-<p class="notice">Notre moteur analysera la forme des équipes, les confrontations, les buts, les absences confirmées et les cotes disponibles.</p>
-<p class="green">Les probabilités seront des estimations, jamais des garanties.</p>
+
+<p class="notice">
+Notre moteur analysera la forme des équipes,
+les confrontations, les buts, les absences confirmées
+et les cotes disponibles.
+</p>
+
+<p class="green">
+Les probabilités seront des estimations, jamais des garanties.
+</p>
 </div>
+
 </section>
 
+
 <section id="settings">
+
 <h2>⚙ Paramètres</h2>
+
 <div class="card">
 <p>Langue : Français</p>
-<p>API-Football : à connecter</p>
-<p>SportAPI.ai : à connecter</p>
-<p class="notice">Les clés API seront protégées sur un serveur et ne seront pas placées dans cette page.</p>
+<p>API-Football : <span class="green">Serveur configuré</span></p>
+<p>SportAPI.ai : Connexion à venir</p>
+
+<p class="notice">
+Les clés API sont protégées sur le serveur.
+Elles ne sont pas placées dans cette page.
+</p>
 </div>
+
 </section>
+
 </main>
+
 
 <nav>
 <button onclick="show('home')">⌂ Accueil</button>
@@ -81,12 +287,229 @@ section.active{display:block}
 <button onclick="show('settings')">⚙ Paramètres</button>
 </nav>
 
+
 <script>
-function show(id){
-document.querySelectorAll('main section').forEach(s=>s.classList.remove('active'));
-document.getElementById(id).classList.add('active');
-window.scrollTo(0,0);
+
+const API_URL = "https://bet-agent-ai.onrender.com";
+
+let lastLoadedDate = "";
+
+function localDate(){
+
+const now = new Date();
+
+const year = now.getFullYear();
+const month = String(now.getMonth()+1).padStart(2,"0");
+const day = String(now.getDate()).padStart(2,"0");
+
+return `${year}-${month}-${day}`;
+
 }
+
+
+function show(id){
+
+document.querySelectorAll("main section")
+.forEach(section => section.classList.remove("active"));
+
+document.getElementById(id).classList.add("active");
+
+window.scrollTo(0,0);
+
+if(id === "matches"){
+const date = document.getElementById("match-date").value;
+
+if(date !== lastLoadedDate){
+loadMatches();
+}
+}
+
+}
+
+
+function addText(parent, tag, text, className){
+
+const element = document.createElement(tag);
+
+element.textContent = text;
+
+if(className){
+element.className = className;
+}
+
+parent.appendChild(element);
+
+return element;
+
+}
+
+
+async function loadMatches(){
+
+const container = document.getElementById("matches-list");
+const button = document.getElementById("refresh-button");
+const date = document.getElementById("match-date").value;
+
+if(!date){
+container.textContent = "Choisis une date.";
+return;
+}
+
+container.textContent = "Chargement des matchs...";
+button.disabled = true;
+
+try{
+
+const response = await fetch(
+`${API_URL}/api/fixtures?date=${encodeURIComponent(date)}`
+);
+
+if(!response.ok){
+throw new Error("Erreur serveur : " + response.status);
+}
+
+const data = await response.json();
+
+if(data.errors && Object.keys(data.errors).length > 0){
+throw new Error("Le fournisseur a signalé une erreur.");
+}
+
+const matches = data.response || [];
+
+container.replaceChildren();
+
+lastLoadedDate = date;
+
+document.getElementById("dashboard-count").textContent =
+matches.length;
+
+if(matches.length === 0){
+
+addText(
+container,
+"div",
+"Aucun match trouvé pour cette date.",
+"card notice"
+);
+
+return;
+
+}
+
+const grouped = {};
+
+matches.forEach(match => {
+
+const league = match.league?.name || "Championnat inconnu";
+
+if(!grouped[league]){
+grouped[league] = [];
+}
+
+grouped[league].push(match);
+
+});
+
+
+Object.keys(grouped).forEach(league => {
+
+const heading = document.createElement("h3");
+
+heading.textContent = "🏆 " + league;
+
+container.appendChild(heading);
+
+grouped[league].forEach(match => {
+
+const card = document.createElement("div");
+
+card.className = "match";
+
+const home = match.teams?.home?.name || "Équipe domicile";
+const away = match.teams?.away?.name || "Équipe extérieure";
+
+const homeGoals = match.goals?.home ?? "-";
+const awayGoals = match.goals?.away ?? "-";
+
+const status = match.fixture?.status?.long || "À venir";
+
+const time = match.fixture?.date
+? new Date(match.fixture.date).toLocaleTimeString(
+"fr-FR",
+{hour:"2-digit",minute:"2-digit"}
+)
+: "Horaire indisponible";
+
+const leagueInfo = match.league?.country
+? league + " • " + match.league.country
+: league;
+
+addText(card,"div",leagueInfo,"match-league");
+
+const teams = document.createElement("div");
+teams.className = "match-teams";
+
+addText(teams,"span",home);
+
+addText(
+teams,
+"span",
+`${homeGoals} - ${awayGoals}`,
+"score"
+);
+
+addText(teams,"span",away);
+
+card.appendChild(teams);
+
+addText(
+card,
+"div",
+`${time} • ${status}`,
+"match-info"
+);
+
+container.appendChild(card);
+
+});
+
+});
+
+}
+
+catch(error){
+
+container.replaceChildren();
+
+addText(
+container,
+"div",
+"Impossible de récupérer les matchs. Vérifie le serveur ou réessaie.",
+"card error"
+);
+
+console.error("Erreur BET AGENT AI:",error);
+
+}
+
+finally{
+
+button.disabled = false;
+
+}
+
+}
+
+
+document.addEventListener("DOMContentLoaded",()=>{
+
+const dateInput = document.getElementById("match-date");
+
+dateInput.value = localDate();
+
+});
+
 </script>
+
 </body>
 </html>
