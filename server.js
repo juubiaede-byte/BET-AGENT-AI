@@ -22,6 +22,7 @@ const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
 
 const FOOTBALL_DATA_TOKEN = process.env.FOOTBALL_DATA_TOKEN;
 const FOOTBALL_CHARTS_KEY = process.env.FOOTBALL_CHARTS_KEY;
+const THESPORTSDB_KEY = process.env.THESPORTSDB_KEY || "123";
 
 // =====================================
 // SUPABASE
@@ -293,7 +294,6 @@ async function footballDataFetch(endpoint) {
   );
 }
 
-// Test Football-Data.org
 app.get("/api/providers/football-data/test", async (req, res) => {
   try {
     const result = await footballDataFetch("competitions/");
@@ -353,7 +353,6 @@ async function footballChartsFetch(endpoint) {
   );
 }
 
-// Test et récupération des championnats
 app.get("/api/providers/football-charts/test", async (req, res) => {
   try {
     const result = await footballChartsFetch("leagues/");
@@ -384,6 +383,52 @@ app.get("/api/providers/football-charts/test", async (req, res) => {
 });
 
 // =====================================
+// THESPORTSDB
+// =====================================
+
+async function theSportsDBFetch(endpoint) {
+  const url =
+    `https://www.thesportsdb.com/api/v1/json/${THESPORTSDB_KEY}/${endpoint}`;
+
+  return trackedFetch(
+    url,
+    "THESPORTSDB"
+  );
+}
+
+// Test et découverte des ligues
+app.get("/api/providers/thesportsdb/test", async (req, res) => {
+  try {
+    const result = await theSportsDBFetch("all_leagues.php");
+
+    const leagues = result.data.leagues || [];
+
+    if (!Array.isArray(leagues)) {
+      throw new Error(
+        "Format de réponse TheSportsDB inattendu."
+      );
+    }
+
+    res.json({
+      provider: "TheSportsDB",
+      status: "connected",
+      leaguesAvailable: leagues.length,
+      leagues,
+      cache: result.fromCache,
+      quotas: await getUsage()
+    });
+
+  } catch (error) {
+    res.status(error.status || 500).json({
+      provider: "TheSportsDB",
+      status: "error",
+      message: error.message,
+      quotas: await getUsage().catch(() => null)
+    });
+  }
+});
+
+// =====================================
 // SERVEUR
 // =====================================
 
@@ -391,11 +436,12 @@ app.get("/", (req, res) => {
   res.json({
     app: "BET AGENT AI",
     status: "Serveur connecté",
-    version: "4.1",
+    version: "4.2",
     database: "Supabase",
     providers: [
       "Football-Data.org",
-      "Football Charts"
+      "Football Charts",
+      "TheSportsDB"
     ]
   });
 });
