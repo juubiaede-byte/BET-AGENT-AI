@@ -1,0 +1,92 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#07110f">
+<title>BET AGENT AI</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#07110f;color:#f3faf6;font-family:Arial,sans-serif}
+header{padding:22px;background:#101d19;border-bottom:1px solid #20362e}
+h1{color:#35e39a;font-size:23px;margin:0}
+header p{color:#91a69d;font-size:12px}
+main{padding:18px;max-width:650px;margin:auto}
+.hero{background:linear-gradient(135deg,#16432e,#102b42);padding:23px;border-radius:18px;margin-bottom:20px}
+.hero h2{font-size:27px}
+.hero p{color:#c0d4ca;font-size:14px;line-height:1.6}
+button{background:#35e39a;color:#07110f;border:0;padding:12px 18px;border-radius:10px;font-weight:bold}
+h3{margin-top:25px}
+.card{background:#101d19;border:1px solid #20362e;padding:17px;border-radius:15px;margin:12px 0}
+.label{color:#91a69d;font-size:12px}
+.green{color:#35e39a}
+nav{position:fixed;bottom:0;left:0;right:0;background:#101d19;display:flex;justify-content:space-around;padding:14px 5px;border-top:1px solid #20362e}
+nav button{background:transparent;color:#35e39a;padding:8px;font-size:12px}
+section{display:none;padding-bottom:75px}
+section.active{display:block}
+.notice{color:#c0d4ca;font-size:12px;line-height:1.6}
+</style>
+</head>
+<body>
+<header>
+<h1>⚽ BET AGENT AI</h1>
+<p>FOOTBALL INTELLIGENCE • ANALYSE & PRÉDICTIONS</p>
+</header>
+
+<main>
+<section id="home" class="active">
+<div class="hero">
+<p class="green">ANALYSE FOOTBALL</p>
+<h2>Les données avant les décisions.</h2>
+<p>Découvre une nouvelle façon d'analyser le football grâce aux statistiques et à l'intelligence artificielle.</p>
+<button onclick="show('matches')">Voir les matchs</button>
+</div>
+<h3>Tableau de bord</h3>
+<div class="card"><span class="label">Matchs suivis</span><h2>—</h2><p class="label">En attente des données API</p></div>
+<div class="card"><span class="label">Analyses IA</span><h2 class="green">—</h2><p class="label">Moteur à construire</p></div>
+<div class="card"><span class="label">Cotes comparées</span><h2>—</h2><p class="label">Connexion à venir</p></div>
+<div class="card"><p class="notice">ℹ️ Version de démonstration. Aucun match ou pronostic fictif n'est présenté comme réel.</p></div>
+</section>
+
+<section id="matches">
+<h2>⚽ Matchs</h2>
+<div class="card"><p class="notice">Les vrais matchs apparaîtront ici après la connexion des fournisseurs API.</p></div>
+</section>
+
+<section id="analysis">
+<h2>✦ Analyse IA</h2>
+<div class="card">
+<h3>Intelligence artificielle</h3>
+<p class="notice">Notre moteur analysera la forme des équipes, les confrontations, les buts, les absences confirmées et les cotes disponibles.</p>
+<p class="green">Les probabilités seront des estimations, jamais des garanties.</p>
+</div>
+</section>
+
+<section id="settings">
+<h2>⚙ Paramètres</h2>
+<div class="card">
+<p>Langue : Français</p>
+<p>API-Football : à connecter</p>
+<p>SportAPI.ai : à connecter</p>
+<p class="notice">Les clés API seront protégées sur un serveur et ne seront pas placées dans cette page.</p>
+</div>
+</section>
+</main>
+
+<nav>
+<button onclick="show('home')">⌂ Accueil</button>
+<button onclick="show('matches')">⚽ Matchs</button>
+<button onclick="show('analysis')">✦ Analyse IA</button>
+<button onclick="show('settings')">⚙ Paramètres</button>
+</nav>
+
+<script>
+function show(id){
+document.querySelectorAll('main section').forEach(s=>s.classList.remove('active'));
+document.getElementById(id).classList.add('active');
+window.scrollTo(0,0);
+}
+</script>
+</body>
+</html>
