@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -9,155 +8,54 @@
 
 <style>
 *{box-sizing:border-box}
-
-body{
-margin:0;
-background:#07110f;
-color:#f3faf6;
-font-family:Arial,sans-serif
-}
-
-header{
-padding:22px;
-background:#101d19;
-border-bottom:1px solid #20362e
-}
-
+body{margin:0;background:#07110f;color:#f3faf6;font-family:Arial,sans-serif}
+header{padding:20px;background:#101d19;border-bottom:1px solid #20362e}
 h1{color:#35e39a;font-size:23px;margin:0}
-header p{color:#91a69d;font-size:12px}
-
-main{
-padding:18px;
-max-width:650px;
-margin:auto
-}
-
-.hero{
-background:linear-gradient(135deg,#16432e,#102b42);
-padding:23px;
-border-radius:18px;
-margin-bottom:20px
-}
-
-.hero h2{font-size:27px}
+header p{color:#91a69d;font-size:12px;margin-bottom:0}
+main{padding:16px;max-width:700px;margin:auto}
+section{display:none;padding-bottom:95px}
+section.active{display:block}
+.hero{background:linear-gradient(135deg,#16432e,#102b42);padding:22px;border-radius:18px;margin-bottom:20px}
+.hero h2{font-size:26px}
 .hero p{color:#c0d4ca;font-size:14px;line-height:1.6}
-
-button{
-background:#35e39a;
-color:#07110f;
-border:0;
-padding:12px 18px;
-border-radius:10px;
-font-weight:bold;
-cursor:pointer
-}
-
-button:disabled{opacity:.5}
-
-h3{margin-top:15px}
-
-.card{
-background:#101d19;
-border:1px solid #20362e;
-padding:17px;
-border-radius:15px;
-margin:12px 0
-}
-
+h2{font-size:21px}
+h3{margin-top:16px}
+.card,.match{background:#101d19;border:1px solid #20362e;padding:16px;border-radius:15px;margin:12px 0}
 .label{color:#91a69d;font-size:12px}
 .green{color:#35e39a}
-
-nav{
-position:fixed;
-bottom:0;
-left:0;
-right:0;
-background:#101d19;
-display:flex;
-justify-content:space-around;
-padding:14px 5px;
-border-top:1px solid #20362e;
-z-index:10
-}
-
-nav button{
-background:transparent;
-color:#35e39a;
-padding:8px;
-font-size:12px
-}
-
-section{display:none;padding-bottom:85px}
-section.active{display:block}
-
-.notice{
-color:#c0d4ca;
-font-size:12px;
-line-height:1.6
-}
-
-.match{
-background:#101d19;
-border:1px solid #20362e;
-padding:16px;
-border-radius:14px;
-margin:12px 0
-}
-
-.match-league{
-color:#35e39a;
-font-size:12px;
-margin-bottom:12px
-}
-
-.match-teams{
-display:grid;
-grid-template-columns:1fr auto 1fr;
-align-items:center;
-gap:8px;
-text-align:center;
-font-weight:bold
-}
-
-.match-teams span:last-child{text-align:center}
-
-.score{
-font-size:19px;
-color:#35e39a;
-white-space:nowrap
-}
-
-.match-info{
-color:#91a69d;
-font-size:11px;
-margin-top:12px;
-text-align:center
-}
-
-.controls{
-display:flex;
-gap:8px;
-flex-wrap:wrap;
-margin:12px 0
-}
-
-input{
-background:#101d19;
-border:1px solid #20362e;
-color:white;
-padding:11px;
-border-radius:9px;
-flex:1;
-min-width:130px
-}
-
-.loading{
-text-align:center;
-padding:25px;
-color:#35e39a
-}
-
+.notice{color:#c0d4ca;font-size:12px;line-height:1.6}
 .error{color:#ff8585}
+.success{color:#35e39a}
+button{background:#35e39a;color:#07110f;border:0;padding:12px 16px;border-radius:10px;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+button.secondary{background:#20362e;color:#35e39a;border:1px solid #315344}
+button.danger{background:#512b2b;color:#ffbaba}
+nav{position:fixed;bottom:0;left:0;right:0;background:#101d19;display:flex;justify-content:space-around;padding:10px 3px;border-top:1px solid #20362e;z-index:10}
+nav button{background:transparent;color:#35e39a;padding:9px 5px;font-size:11px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+input,textarea,select{width:100%;background:#07110f;border:1px solid #315344;color:white;padding:12px;border-radius:9px;margin:7px 0;font-family:Arial,sans-serif}
+textarea{min-height:75px;resize:vertical}
+.field{margin:12px 0}
+.field label{font-size:12px;color:#91a69d}
+.loading{text-align:center;padding:25px;color:#35e39a}
+.match-league{color:#35e39a;font-size:12px;margin-bottom:12px}
+.match-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center;font-weight:bold}
+.match-teams span:last-child{text-align:center}
+.score{font-size:18px;color:#35e39a;white-space:nowrap}
+.match-info{color:#91a69d;font-size:11px;margin-top:12px;text-align:center}
+.match button{width:100%;margin-top:14px}
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.result-item{background:#07110f;padding:12px;border-radius:10px}
+.result-item strong{display:block;color:#35e39a;font-size:20px;margin-top:5px}
+.article{border-top:1px solid #20362e;padding:13px 0}
+.article a{color:#35e39a;text-decoration:none;font-weight:bold;font-size:14px}
+.article p{font-size:12px;color:#c0d4ca;line-height:1.5}
+.badge{display:inline-block;background:#20362e;color:#35e39a;border-radius:20px;padding:5px 9px;font-size:11px;margin:3px}
+.provider{display:flex;justify-content:space-between;gap:10px;align-items:center;border-bottom:1px solid #20362e;padding:12px 0;font-size:13px}
+.provider:last-child{border:0}
+.small{font-size:11px;color:#91a69d}
+hr{border:0;border-top:1px solid #20362e;margin:16px 0}
+a{overflow-wrap:anywhere}
 </style>
 </head>
 
@@ -170,14 +68,15 @@ color:#35e39a
 
 <main>
 
+<!-- ACCUEIL -->
 <section id="home" class="active">
 
 <div class="hero">
 <p class="green">ANALYSE FOOTBALL</p>
 <h2>Les données avant les décisions.</h2>
 <p>
-Découvre une nouvelle façon d'analyser le football grâce
-aux statistiques et à l'intelligence artificielle.
+Statistiques, probabilités Poisson et recherche d'actualités
+pour approfondir l'analyse des rencontres.
 </p>
 <button onclick="show('matches')">Voir les matchs</button>
 </div>
@@ -187,49 +86,43 @@ aux statistiques et à l'intelligence artificielle.
 <div class="card">
 <span class="label">Matchs disponibles</span>
 <h2 id="dashboard-count">—</h2>
-<p class="label">Données API-Football</p>
+<p class="label">Rencontres dans les 12 prochaines heures</p>
 </div>
 
 <div class="card">
-<span class="label">Analyses IA</span>
-<h2 class="green">En préparation</h2>
-<p class="label">Moteur à construire</p>
+<span class="label">Requêtes API utilisées aujourd'hui</span>
+<h2 id="dashboard-usage" class="green">—</h2>
+<p class="label" id="dashboard-remaining">Chargement des quotas...</p>
 </div>
 
 <div class="card">
-<span class="label">Cotes comparées</span>
-<h2>À venir</h2>
-<p class="label">Connexion des bookmakers</p>
+<span class="label">Recherches Internet</span>
+<h2 id="dashboard-research" class="green">—</h2>
+<p class="label">Recherches disponibles aujourd'hui</p>
 </div>
 
 <div class="card">
 <p class="notice">
-ℹ️ Les informations affichées proviennent des fournisseurs
-de données. Les analyses et pronostics seront ajoutés
-progressivement.
+Les probabilités Poisson sont des estimations statistiques.
+Les actualités trouvées doivent être vérifiées avant toute décision.
+Aucun résultat n'est garanti.
 </p>
 </div>
 
 </section>
 
-
+<!-- MATCHS -->
 <section id="matches">
 
 <h2>⚽ Matchs de football</h2>
 
 <div class="card">
-<p class="label">CHOISIR UNE DATE</p>
-
-<div class="controls">
-<input type="date" id="match-date">
-<button id="refresh-button" onclick="loadMatches()">
-Actualiser
-</button>
-</div>
-
+<p class="label">RENCONTRES À VENIR</p>
 <p class="notice">
-Les rencontres sont récupérées directement depuis API-Football.
+Les matchs affichés correspondent aux 12 prochaines heures,
+selon les données disponibles sur Football-Data.org.
 </p>
+<button id="refresh-button" onclick="loadMatches()">Actualiser les matchs</button>
 </div>
 
 <div id="matches-list">
@@ -238,40 +131,103 @@ Les rencontres sont récupérées directement depuis API-Football.
 
 </section>
 
-
+<!-- ANALYSE -->
 <section id="analysis">
 
-<h2>✦ Analyse IA</h2>
+<h2>✦ Analyse Poisson</h2>
 
 <div class="card">
-<h3>Intelligence artificielle</h3>
+<h3>1. Choisir une rencontre</h3>
+<p class="notice">Sélectionne d'abord un match dans l'onglet Matchs.</p>
+<div id="selected-match" class="notice">Aucun match sélectionné.</div>
+</div>
 
+<div class="card">
+<h3>2. Forme récente des équipes</h3>
 <p class="notice">
-Notre moteur analysera la forme des équipes,
-les confrontations, les buts, les absences confirmées
-et les cotes disponibles.
+Entre les résultats des 3 à 10 derniers matchs de chaque équipe.
+Format : buts marqués-buts encaissés.
+Exemple : 2-1, 1-0, 0-2.
+Sépare les résultats par des virgules.
 </p>
 
-<p class="green">
-Les probabilités seront des estimations, jamais des garanties.
+<div class="field">
+<label for="home-form">Résultats de l'équipe à domicile</label>
+<textarea id="home-form" placeholder="Exemple : 2-1, 1-0, 0-2"></textarea>
+</div>
+
+<div class="field">
+<label for="away-form">Résultats de l'équipe à l'extérieur</label>
+<textarea id="away-form" placeholder="Exemple : 1-1, 2-0, 0-1"></textarea>
+</div>
+
+<button id="analyze-button" onclick="runAnalysis()">Calculer les probabilités</button>
+<div id="analysis-message" class="notice"></div>
+</div>
+
+<div id="analysis-result"></div>
+
+<div class="card">
+<h3>3. Recherche Internet</h3>
+<p class="notice">
+Recherche des actualités, blessures possibles, suspensions
+et compositions probables avec Google Actualités RSS.
 </p>
+<button id="research-button" class="secondary" onclick="runResearch()">Rechercher des informations</button>
+<div id="research-result"></div>
+</div>
+
+<div class="card">
+<h3>Historique des analyses</h3>
+<button class="secondary" onclick="loadHistory()">Actualiser l'historique</button>
+<div id="history-list" class="notice">Appuie sur Actualiser pour consulter les analyses enregistrées.</div>
 </div>
 
 </section>
 
-
+<!-- PARAMETRES -->
 <section id="settings">
 
-<h2>⚙ Paramètres</h2>
+<h2>⚙ Paramètres et fournisseurs</h2>
 
 <div class="card">
-<p>Langue : Français</p>
-<p>API-Football : <span class="green">Serveur configuré</span></p>
-<p>SportAPI.ai : Connexion à venir</p>
-
+<h3>État des connexions</h3>
 <p class="notice">
-Les clés API sont protégées sur le serveur.
-Elles ne sont pas placées dans cette page.
+Vérifie les fournisseurs de données directement depuis ton serveur.
+</p>
+<button id="providers-button" onclick="testProviders()">Tester les fournisseurs</button>
+<div id="providers-list">
+<p class="notice">Appuie sur le bouton pour vérifier les connexions.</p>
+</div>
+</div>
+
+<div class="card">
+<h3>Quotas API</h3>
+<button class="secondary" onclick="loadUsage()">Actualiser les quotas</button>
+<div id="usage-details" class="notice">Chargement...</div>
+</div>
+
+<div class="card">
+<h3>Protection</h3>
+<p>Serveur : <span class="green">BET AGENT AI</span></p>
+<p>Base de données : <span class="green">Supabase</span></p>
+<p>Version serveur : <span class="green">4.3</span></p>
+<p class="notice">
+Les clés API restent protégées sur Render.
+Elles ne sont pas exposées dans cette page.
+</p>
+</div>
+
+<div class="card">
+<h3>Fonctionnalités connectées</h3>
+<p class="notice">
+• Football-Data.org<br>
+• Football Charts<br>
+• TheSportsDB<br>
+• Google Actualités RSS<br>
+• Analyse statistique Poisson<br>
+• Historique Supabase<br>
+• Cache et protection des quotas
 </p>
 </div>
 
@@ -279,236 +235,695 @@ Elles ne sont pas placées dans cette page.
 
 </main>
 
-
 <nav>
 <button onclick="show('home')">⌂ Accueil</button>
 <button onclick="show('matches')">⚽ Matchs</button>
-<button onclick="show('analysis')">✦ Analyse IA</button>
+<button onclick="show('analysis')">✦ Analyse</button>
 <button onclick="show('settings')">⚙ Paramètres</button>
 </nav>
 
-
 <script>
-
 const API_URL = "https://bet-agent-ai.onrender.com";
 
-let lastLoadedDate = "";
+let fixtures = [];
+let selectedFixture = null;
+let lastAnalysis = null;
 
-function localDate(){
+async function api(path, options = {}) {
+  const response = await fetch(API_URL + path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
 
-const now = new Date();
+  let data;
 
-const year = now.getFullYear();
-const month = String(now.getMonth()+1).padStart(2,"0");
-const day = String(now.getDate()).padStart(2,"0");
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Réponse serveur illisible.");
+  }
 
-return `${year}-${month}-${day}`;
+  if (!response.ok) {
+    throw new Error(data.message || data.error || "Erreur serveur HTTP " + response.status);
+  }
 
+  return data;
 }
 
+function show(id) {
+  document.querySelectorAll("main section").forEach(section => {
+    section.classList.remove("active");
+  });
 
-function show(id){
+  document.getElementById(id).classList.add("active");
+  window.scrollTo(0, 0);
 
-document.querySelectorAll("main section")
-.forEach(section => section.classList.remove("active"));
-
-document.getElementById(id).classList.add("active");
-
-window.scrollTo(0,0);
-
-if(id === "matches"){
-const date = document.getElementById("match-date").value;
-
-if(date !== lastLoadedDate){
-loadMatches();
-}
+  if (id === "matches" && fixtures.length === 0) loadMatches();
+  if (id === "settings") loadUsage();
+  if (id === "analysis") loadHistory();
 }
 
+function addText(parent, tag, text, className = "") {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  if (className) element.className = className;
+  parent.appendChild(element);
+  return element;
 }
 
+function formatDate(value) {
+  if (!value) return "Date indisponible";
 
-function addText(parent, tag, text, className){
+  const date = new Date(value);
 
-const element = document.createElement(tag);
+  if (Number.isNaN(date.getTime())) return "Date indisponible";
 
-element.textContent = text;
-
-if(className){
-element.className = className;
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
-parent.appendChild(element);
+function formatTime(value) {
+  if (!value) return "Horaire indisponible";
 
-return element;
+  const date = new Date(value);
 
+  if (Number.isNaN(date.getTime())) return "Horaire indisponible";
+
+  return date.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
+// MATCHS
 
-async function loadMatches(){
+async function loadMatches() {
+  const container = document.getElementById("matches-list");
+  const button = document.getElementById("refresh-button");
 
-const container = document.getElementById("matches-list");
-const button = document.getElementById("refresh-button");
-const date = document.getElementById("match-date").value;
+  button.disabled = true;
+  container.replaceChildren();
+  addText(container, "div", "Chargement des matchs...", "loading");
 
-if(!date){
-container.textContent = "Choisis une date.";
-return;
+  try {
+    const data = await api("/api/fixtures");
+
+    fixtures = data.response || [];
+
+    container.replaceChildren();
+
+    document.getElementById("dashboard-count").textContent =
+      fixtures.length;
+
+    if (!fixtures.length) {
+      addText(
+        container,
+        "div",
+        "Aucun match programmé dans les 12 prochaines heures.",
+        "card notice"
+      );
+      return;
+    }
+
+    const grouped = {};
+
+    fixtures.forEach(match => {
+      const league = match.competition?.name || "Championnat inconnu";
+
+      if (!grouped[league]) grouped[league] = [];
+      grouped[league].push(match);
+    });
+
+    Object.keys(grouped).forEach(league => {
+      addText(container, "h3", "🏆 " + league);
+
+      grouped[league].forEach(match => {
+        const card = document.createElement("div");
+        card.className = "match";
+
+        const home = match.homeTeam?.name || "Équipe domicile";
+        const away = match.awayTeam?.name || "Équipe extérieure";
+        const kickoff = match.utcDate;
+        const status = match.status || "SCHEDULED";
+
+        const country = match.area?.name
+          ? league + " • " + match.area.name
+          : league;
+
+        addText(card, "div", country, "match-league");
+
+        const teams = document.createElement("div");
+        teams.className = "match-teams";
+
+        addText(teams, "span", home);
+
+        const score = match.score?.fullTime;
+        const scoreText =
+          score && score.home !== null && score.away !== null
+            ? score.home + " - " + score.away
+            : "VS";
+
+        addText(teams, "span", scoreText, "score");
+        addText(teams, "span", away);
+
+        card.appendChild(teams);
+
+        addText(
+          card,
+          "div",
+          formatDate(kickoff) + " • " + status,
+          "match-info"
+        );
+
+        const button = document.createElement("button");
+        button.textContent = "Analyser ce match";
+
+        button.addEventListener("click", () => {
+          selectFixture(match);
+          show("analysis");
+        });
+
+        card.appendChild(button);
+        container.appendChild(card);
+      });
+    });
+
+  } catch (error) {
+    fixtures = [];
+    container.replaceChildren();
+
+    addText(
+      container,
+      "div",
+      "Impossible de récupérer les matchs : " + error.message,
+      "card error"
+    );
+  } finally {
+    button.disabled = false;
+  }
 }
 
-container.textContent = "Chargement des matchs...";
-button.disabled = true;
+function selectFixture(match) {
+  selectedFixture = match;
+  lastAnalysis = null;
 
-try{
+  const home = match.homeTeam?.name || "Domicile";
+  const away = match.awayTeam?.name || "Extérieur";
 
-const response = await fetch(
-`${API_URL}/api/fixtures?date=${encodeURIComponent(date)}`
-);
+  const display = document.getElementById("selected-match");
+  display.replaceChildren();
 
-if(!response.ok){
-throw new Error("Erreur serveur : " + response.status);
+  addText(display, "p", home + " contre " + away, "green");
+  addText(display, "p", "Compétition : " + (match.competition?.name || "Inconnue"));
+  addText(display, "p", "Date : " + formatDate(match.utcDate));
+  addText(display, "p", "Identifiant : " + match.id, "small");
+
+  document.getElementById("analysis-result").replaceChildren();
+  document.getElementById("research-result").replaceChildren();
+  document.getElementById("analysis-message").textContent = "";
 }
 
-const data = await response.json();
+// ANALYSE POISSON
 
-if(data.errors && Object.keys(data.errors).length > 0){
-throw new Error("Le fournisseur a signalé une erreur.");
+function parseForm(value) {
+  const entries = value
+    .split(/[,;\n]+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  if (entries.length < 3 || entries.length > 10) {
+    throw new Error("Entre 3 à 10 résultats pour chaque équipe.");
+  }
+
+  return entries.map(entry => {
+    const match = entry.match(/^(\d+)\s*[-:]\s*(\d+)$/);
+
+    if (!match) {
+      throw new Error("Format incorrect : utilise par exemple 2-1, 1-0, 0-2.");
+    }
+
+    return {
+      gf: Number(match[1]),
+      ga: Number(match[2])
+    };
+  });
 }
 
-const matches = data.response || [];
+async function runAnalysis() {
+  const button = document.getElementById("analyze-button");
+  const message = document.getElementById("analysis-message");
+  const result = document.getElementById("analysis-result");
 
-container.replaceChildren();
+  if (!selectedFixture) {
+    message.textContent = "Sélectionne d'abord un match dans l'onglet Matchs.";
+    message.className = "notice error";
+    return;
+  }
 
-lastLoadedDate = date;
+  let homeForm;
+  let awayForm;
 
-document.getElementById("dashboard-count").textContent =
-matches.length;
+  try {
+    homeForm = parseForm(document.getElementById("home-form").value);
+    awayForm = parseForm(document.getElementById("away-form").value);
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = "notice error";
+    return;
+  }
 
-if(matches.length === 0){
+  button.disabled = true;
+  message.textContent = "Calcul des probabilités...";
+  message.className = "notice";
+  result.replaceChildren();
 
-addText(
-container,
-"div",
-"Aucun match trouvé pour cette date.",
-"card notice"
-);
+  const homeName = selectedFixture.homeTeam?.name || "Domicile";
+  const awayName = selectedFixture.awayTeam?.name || "Extérieur";
 
-return;
+  try {
+    const data = await api("/api/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        fixtureId: selectedFixture.id,
+        matchStart: selectedFixture.utcDate,
+        home: {
+          name: homeName,
+          form: homeForm
+        },
+        away: {
+          name: awayName,
+          form: awayForm
+        }
+      })
+    });
 
+    lastAnalysis = data;
+
+    message.textContent = "Analyse calculée et enregistrée avec succès.";
+    message.className = "notice success";
+
+    displayAnalysis(data, result);
+
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = "notice error";
+  } finally {
+    button.disabled = false;
+  }
 }
 
-const grouped = {};
+function displayAnalysis(data, container) {
+  container.replaceChildren();
 
-matches.forEach(match => {
+  const analysis = data.analysis;
 
-const league = match.league?.name || "Championnat inconnu";
+  if (!analysis || !analysis.probabilities) {
+    addText(container, "p", "Résultat d'analyse indisponible.", "error");
+    return;
+  }
 
-if(!grouped[league]){
-grouped[league] = [];
+  const probabilities = analysis.probabilities;
+  const goals = analysis.expectedGoals;
+
+  const card = document.createElement("div");
+  card.className = "card";
+
+  addText(card, "h3", "Résultats de l'analyse");
+  addText(card, "p", data.teams.home + " - " + data.teams.away, "green");
+
+  addText(card, "p", "Buts attendus : " + goals.home + " - " + goals.away, "notice");
+
+  const grid = document.createElement("div");
+  grid.className = "result-grid";
+
+  const items = [
+    ["Victoire domicile", probabilities.homeWin],
+    ["Match nul", probabilities.draw],
+    ["Victoire extérieur", probabilities.awayWin],
+    ["Plus de 1,5 buts", probabilities.over15],
+    ["Plus de 2,5 buts", probabilities.over25],
+    ["Plus de 3,5 buts", probabilities.over35],
+    ["Moins de 2,5 buts", probabilities.under25],
+    ["Les deux équipes marquent", probabilities.btts]
+  ];
+
+  items.forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.className = "result-item";
+
+    addText(item, "span", label, "small");
+    addText(item, "strong", value + "%");
+
+    grid.appendChild(item);
+  });
+
+  card.appendChild(grid);
+
+  addText(card, "p", analysis.warning, "notice");
+
+  container.appendChild(card);
 }
 
-grouped[league].push(match);
+// RECHERCHE INTERNET
 
+async function runResearch() {
+  const button = document.getElementById("research-button");
+  const container = document.getElementById("research-result");
+
+  if (!selectedFixture) {
+    container.textContent = "Sélectionne d'abord un match.";
+    return;
+  }
+
+  const home = selectedFixture.homeTeam?.name;
+  const away = selectedFixture.awayTeam?.name;
+
+  button.disabled = true;
+  container.replaceChildren();
+  addText(container, "p", "Recherche des actualités en cours...", "loading");
+
+  try {
+    const query =
+      "/api/research?home=" + encodeURIComponent(home) +
+      "&away=" + encodeURIComponent(away);
+
+    const data = await api(query);
+
+    container.replaceChildren();
+
+    const summary = document.createElement("div");
+    summary.className = "card";
+
+    addText(summary, "h3", "Recherche terminée", "green");
+    addText(summary, "p", "Moteur : " + data.searchEngine, "notice");
+    addText(summary, "p", "Recherches effectuées : " + data.searchesGenerated, "notice");
+    addText(summary, "p", "Articles trouvés : " + data.articlesFound, "notice");
+
+    if (data.researchUsage) {
+      addText(
+        summary,
+        "p",
+        "Recherches utilisées aujourd'hui : " +
+        data.researchUsage.usedToday + "/" +
+        data.researchUsage.dailyLimit,
+        "notice"
+      );
+    }
+
+    container.appendChild(summary);
+
+    if (data.searches?.length) {
+      const searchesCard = document.createElement("div");
+      searchesCard.className = "card";
+
+      addText(searchesCard, "h3", "Recherches effectuées");
+
+      data.searches.forEach(search => {
+        addText(
+          searchesCard,
+          "p",
+          search.category + " • " + search.results + " résultat(s)",
+          "notice"
+        );
+      });
+
+      container.appendChild(searchesCard);
+    }
+
+    if (data.possibleAbsences?.length) {
+      const absenceCard = document.createElement("div");
+      absenceCard.className = "card";
+
+      addText(absenceCard, "h3", "⚠️ Absences possibles");
+
+      data.possibleAbsences.forEach(item => {
+        addText(absenceCard, "p", item.title);
+        addText(absenceCard, "p", item.status + " • " + item.source, "notice");
+
+        const link = document.createElement("a");
+        link.href = item.link;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Consulter la source";
+        absenceCard.appendChild(link);
+
+        addText(absenceCard, "p", item.warning, "notice");
+        addText(absenceCard, "hr", "");
+      });
+
+      container.appendChild(absenceCard);
+    }
+
+    const articlesCard = document.createElement("div");
+    articlesCard.className = "card";
+
+    addText(articlesCard, "h3", "Actualités trouvées");
+
+    if (!data.articles?.length) {
+      addText(articlesCard, "p", "Aucun article trouvé.", "notice");
+    } else {
+      data.articles.forEach(article => {
+        const block = document.createElement("div");
+        block.className = "article";
+
+        const link = document.createElement("a");
+        link.href = article.link;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = article.title;
+
+        block.appendChild(link);
+
+        addText(block, "p", article.source + " • " + formatDate(article.publishedAt));
+        addText(block, "p", article.description || "Aucun extrait disponible.");
+
+        articlesCard.appendChild(block);
+      });
+    }
+
+    container.appendChild(articlesCard);
+
+    const limitations = document.createElement("div");
+    limitations.className = "card";
+
+    addText(limitations, "h3", "Limites de la recherche");
+
+    (data.limitations || []).forEach(item => {
+      addText(limitations, "p", "• " + item, "notice");
+    });
+
+    container.appendChild(limitations);
+
+    if (data.errors?.length) {
+      const errors = document.createElement("div");
+      errors.className = "card";
+
+      addText(errors, "h3", "Certaines recherches ont échoué");
+
+      data.errors.forEach(error => {
+        addText(errors, "p", error.message, "notice error");
+      });
+
+      container.appendChild(errors);
+    }
+
+  } catch (error) {
+    container.replaceChildren();
+    addText(container, "p", "Erreur de recherche : " + error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// HISTORIQUE
+
+async function loadHistory() {
+  const container = document.getElementById("history-list");
+
+  container.textContent = "Chargement de l'historique...";
+
+  try {
+    const data = await api("/api/analyses");
+
+    container.replaceChildren();
+
+    if (!data.analyses?.length) {
+      addText(container, "p", "Aucune analyse enregistrée.", "notice");
+      return;
+    }
+
+    data.analyses.forEach(item => {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      addText(card, "p", item.home_team + " - " + item.away_team, "green");
+      addText(card, "p", "Match : " + formatDate(item.match_start), "notice");
+      addText(card, "p", "Analyse créée : " + formatDate(item.created_at), "small");
+
+      const probabilities = item.analysis?.probabilities;
+
+      if (probabilities) {
+        addText(
+          card,
+          "p",
+          "1 : " + probabilities.homeWin + "% • N : " +
+          probabilities.draw + "% • 2 : " +
+          probabilities.awayWin + "%",
+          "notice"
+        );
+      }
+
+      container.appendChild(card);
+    });
+
+  } catch (error) {
+    container.textContent = "Impossible de charger l'historique : " + error.message;
+  }
+}
+
+// QUOTAS
+
+async function loadUsage() {
+  try {
+    const data = await api("/api/usage");
+
+    const quotas = data.quotas;
+    const research = data.research;
+
+    document.getElementById("dashboard-usage").textContent =
+      quotas.daily.used + "/" + quotas.daily.limit;
+
+    document.getElementById("dashboard-remaining").textContent =
+      quotas.daily.remaining + " requêtes API restantes aujourd'hui";
+
+    document.getElementById("dashboard-research").textContent =
+      research.remainingToday + "/" + research.dailyLimit;
+
+    const details = document.getElementById("usage-details");
+    details.replaceChildren();
+
+    addText(
+      details,
+      "p",
+      "Heure : " + quotas.hourly.used + "/" + quotas.hourly.limit +
+      " • Restantes : " + quotas.hourly.remaining
+    );
+
+    addText(
+      details,
+      "p",
+      "24 heures : " + quotas.daily.used + "/" + quotas.daily.limit +
+      " • Restantes : " + quotas.daily.remaining
+    );
+
+    addText(
+      details,
+      "p",
+      "Recherche Internet : " + research.usedToday + "/" +
+      research.dailyLimit + " • Restantes : " + research.remainingToday
+    );
+
+    addText(details, "p", "Protection : " + data.protection, "success");
+
+  } catch (error) {
+    document.getElementById("usage-details").textContent =
+      "Impossible de charger les quotas : " + error.message;
+  }
+}
+
+// TEST DES FOURNISSEURS
+
+async function testProviders() {
+  const button = document.getElementById("providers-button");
+  const container = document.getElementById("providers-list");
+
+  button.disabled = true;
+  container.replaceChildren();
+  addText(container, "p", "Vérification des connexions...", "loading");
+
+  const providers = [
+    {
+      name: "Football-Data.org",
+      path: "/api/providers/football-data/test"
+    },
+    {
+      name: "Football Charts",
+      path: "/api/providers/football-charts/test"
+    },
+    {
+      name: "TheSportsDB",
+      path: "/api/providers/thesportsdb/test"
+    }
+  ];
+
+  try {
+    container.replaceChildren();
+
+    for (const provider of providers) {
+      const row = document.createElement("div");
+      row.className = "provider";
+
+      addText(row, "strong", provider.name);
+
+      const status = addText(row, "span", "Vérification...", "small");
+      container.appendChild(row);
+
+      try {
+        const data = await api(provider.path);
+
+        if (data.status === "connected") {
+          status.textContent = "Connecté";
+          status.className = "success";
+        } else {
+          status.textContent = "Non connecté";
+          status.className = "error";
+        }
+
+        if (data.competitionsAvailable !== undefined) {
+          addText(
+            container,
+            "p",
+            data.competitionsAvailable + " compétitions disponibles",
+            "small"
+          );
+        }
+
+        if (data.leaguesAvailable !== undefined) {
+          addText(
+            container,
+            "p",
+            data.leaguesAvailable + " ligues disponibles",
+            "small"
+          );
+        }
+
+      } catch (error) {
+        status.textContent = "Erreur";
+        status.className = "error";
+        addText(container, "p", error.message, "small error");
+      }
+    }
+
+  } finally {
+    button.disabled = false;
+    loadUsage();
+  }
+}
+
+// INITIALISATION
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadUsage();
+  loadMatches();
 });
-
-
-Object.keys(grouped).forEach(league => {
-
-const heading = document.createElement("h3");
-
-heading.textContent = "🏆 " + league;
-
-container.appendChild(heading);
-
-grouped[league].forEach(match => {
-
-const card = document.createElement("div");
-
-card.className = "match";
-
-const home = match.teams?.home?.name || "Équipe domicile";
-const away = match.teams?.away?.name || "Équipe extérieure";
-
-const homeGoals = match.goals?.home ?? "-";
-const awayGoals = match.goals?.away ?? "-";
-
-const status = match.fixture?.status?.long || "À venir";
-
-const time = match.fixture?.date
-? new Date(match.fixture.date).toLocaleTimeString(
-"fr-FR",
-{hour:"2-digit",minute:"2-digit"}
-)
-: "Horaire indisponible";
-
-const leagueInfo = match.league?.country
-? league + " • " + match.league.country
-: league;
-
-addText(card,"div",leagueInfo,"match-league");
-
-const teams = document.createElement("div");
-teams.className = "match-teams";
-
-addText(teams,"span",home);
-
-addText(
-teams,
-"span",
-`${homeGoals} - ${awayGoals}`,
-"score"
-);
-
-addText(teams,"span",away);
-
-card.appendChild(teams);
-
-addText(
-card,
-"div",
-`${time} • ${status}`,
-"match-info"
-);
-
-container.appendChild(card);
-
-});
-
-});
-
-}
-
-catch(error){
-
-container.replaceChildren();
-
-addText(
-container,
-"div",
-"Impossible de récupérer les matchs. Vérifie le serveur ou réessaie.",
-"card error"
-);
-
-console.error("Erreur BET AGENT AI:",error);
-
-}
-
-finally{
-
-button.disabled = false;
-
-}
-
-}
-
-
-document.addEventListener("DOMContentLoaded",()=>{
-
-const dateInput = document.getElementById("match-date");
-
-dateInput.value = localDate();
-
-});
-
 </script>
 
 </body>
