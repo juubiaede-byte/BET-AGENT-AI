@@ -3,46 +3,127 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json({ limit: "100kb" }));
 
 const PORT = process.env.PORT || 3000;
 
-// =====================================
-// CONFIGURATION DES QUOTAS
-// =====================================
-
 const MAX_HOUR = 60;
 const MAX_DAY = 180;
-
-const requestHistory = [];
-const cache = new Map();
-
+const MAX_ANALYSIS_AGE = 24 * 60 * 60 * 1000;
 const CACHE_FIXTURES_MS = 5 * 60 * 1000;
 
-function cleanHistory() {
-  const now = Date.now();
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
 
-  while (
-    requestHistory.length &&
-    now - requestHistory[0] >= 24 * 60 * 60 * 1000
-  ) {
-    requestHistory.shift();
+function dbHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    "Content-Type": "application/json",
+    ...extra
+  };
+}
+
+function checkDatabaseConfig() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Configuration Supabase manquante.");
   }
 }
 
-function getUsage() {
-  cleanHistory();
+async function dbRequest(path, options = {}) {
+  checkDatabaseConfig();
 
-  const now = Date.now();
-  const hourAgo = now - 60 * 60 * 1000;
+  const response = await fetch(
+    `${SUPABASE_URL}/rest/v1/${path}`,
+    {
+      ...options,
+      headers: dbHeaders(options.headers || {})
+    }
+  );
 
-  const hourly = requestHistory.filter(
-    time => time > hourAgo
+  if (!response.ok) {
+    const details = await response.text();
+    console.error("Supabase error:", details);
+    throw new Error("Erreur de base de données.");
+  }
+
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// =====================================
+// NETTOYAGE DES DONNEES EXPIREES
+// =====================================
+
+async function cleanupExpired() {
+  const now = new Date().toISOString();
+  const dayAgo = new Date(
+    Date.now() - MAX_ANALYSIS_AGE
+  ).toISOString();
+
+  await Promise.all([
+    dbRequest(
+      `match_analyses?expires_at=lt.${encodeURIComponent(now)}`,
+      { method: "DELETE" }
+    ),
+    dbRequest(
+      `api_cache?expires_at=lt.${encodeURIComponent(now)}`,
+      { method: "DELETE" }
+    ),
+    dbRequest(
+      `api_requests?requested_at=lt.${encodeURIComponent(dayAgo)}`,
+      { method: "DELETE" }
+    )
+  ]);
+}
+
+// =====================================
+// QUOTAS PERSISTANTS
+// =====================================
+
+async function reserveRequest(provider) {
+  const result = await dbRequest("rpc/reserve_api_request", {
+    method: "POST",
+    body: JSON.stringify({
+      p_provider: provider,
+      p_max_hour: MAX_HOUR,
+      p_max_day: MAX_DAY
+    })
+  });
+
+  const row = Array.isArray(result) ? result[0] : result;
+
+  if (!row || !row.allowed) {
+    const error = new Error("Quota API atteint.");
+    error.status = 429;
+    throw error;
+  }
+
+  return {
+    hourlyUsed: Number(row.hourly_used),
+    dailyUsed: Number(row.daily_used)
+  };
+}
+
+async function getUsage() {
+  const now = new Date().toISOString();
+  const hourAgo = new Date(
+    Date.now() - 60 * 60 * 1000
+  ).toISOString();
+  const dayAgo = new Date(
+    Date.now() - 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const rows = await dbRequest(
+    `api_requests?select=requested_at&requested_at=gt.${encodeURIComponent(dayAgo)}`
+  );
+
+  const hourly = rows.filter(
+    item => item.requested_at > hourAgo
   ).length;
 
-  const daily = requestHistory.length;
+  const daily = rows.length;
 
   return {
     hourly: {
@@ -58,45 +139,58 @@ function getUsage() {
   };
 }
 
-function canMakeRequest() {
-  const usage = getUsage();
+// =====================================
+// CACHE PERSISTANT
+// =====================================
 
-  return (
-    usage.hourly.remaining > 0 &&
-    usage.daily.remaining > 0
+async function getCache(key) {
+  const encoded = encodeURIComponent(key);
+
+  const rows = await dbRequest(
+    `api_cache?cache_key=eq.${encoded}&select=data,expires_at&limit=1`
   );
-}
 
-// =====================================
-// CACHE
-// =====================================
+  if (!rows.length) return null;
 
-function getCache(key) {
-  const item = cache.get(key);
+  const item = rows[0];
 
-  if (!item) return null;
-
-  if (Date.now() > item.expires) {
-    cache.delete(key);
+  if (new Date(item.expires_at).getTime() <= Date.now()) {
+    await dbRequest(
+      `api_cache?cache_key=eq.${encoded}`,
+      { method: "DELETE" }
+    );
     return null;
   }
 
   return item.data;
 }
 
-function setCache(key, data, duration) {
-  cache.set(key, {
-    data,
-    expires: Date.now() + duration
+async function setCache(key, provider, data, duration) {
+  const expires = new Date(
+    Date.now() + duration
+  ).toISOString();
+
+  await dbRequest("api_cache?on_conflict=cache_key", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify({
+      cache_key: key,
+      provider,
+      data,
+      created_at: new Date().toISOString(),
+      expires_at: expires
+    })
   });
 }
 
 // =====================================
-// GESTION CENTRALISEE DES API
+// APPEL API CENTRALISE
 // =====================================
 
-async function trackedFetch(url, options = {}) {
-  const cached = getCache(url);
+async function trackedFetch(url, provider, options = {}) {
+  const cached = await getCache(url);
 
   if (cached) {
     return {
@@ -105,30 +199,49 @@ async function trackedFetch(url, options = {}) {
     };
   }
 
-  if (!canMakeRequest()) {
-    const error = new Error("Quota API atteint");
-    error.status = 429;
-    throw error;
+  // Réserver le quota AVANT l'appel externe.
+  await reserveRequest(provider);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    15000
+  );
+
+  let response;
+
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
   }
 
-  // Compter chaque appel réellement envoyé.
-  requestHistory.push(Date.now());
-
-  const response = await fetch(url, options);
-
   if (!response.ok) {
-    const error = new Error("Erreur du fournisseur API");
-    error.status = 502;
-    throw error;
+    throw new Error(
+      `Erreur du fournisseur ${provider}: ${response.status}`
+    );
   }
 
   const data = await response.json();
 
-  if (data.errors && Object.keys(data.errors).length > 0) {
-    const error = new Error("Le fournisseur a refusé la demande");
-    error.status = 502;
-    throw error;
+  if (
+    data.errors &&
+    Object.keys(data.errors).length > 0
+  ) {
+    throw new Error(
+      `Le fournisseur ${provider} a refusé la demande.`
+    );
   }
+
+  await setCache(
+    url,
+    provider,
+    data,
+    CACHE_FIXTURES_MS
+  );
 
   return {
     data,
@@ -137,88 +250,130 @@ async function trackedFetch(url, options = {}) {
 }
 
 // =====================================
-// ROUTE PRINCIPALE
+// NETTOYAGE AUTOMATIQUE PERIODIQUE
+// =====================================
+
+let cleanupRunning = false;
+
+async function scheduledCleanup() {
+  if (cleanupRunning) return;
+
+  cleanupRunning = true;
+
+  try {
+    await cleanupExpired();
+  } catch (error) {
+    console.error("Nettoyage:", error.message);
+  } finally {
+    cleanupRunning = false;
+  }
+}
+
+setInterval(scheduledCleanup, 10 * 60 * 1000);
+
+// =====================================
+// SERVEUR
 // =====================================
 
 app.get("/", (req, res) => {
   res.json({
     app: "BET AGENT AI",
     status: "Serveur connecté",
-    version: "2.0"
+    version: "3.0",
+    database: "Supabase"
   });
 });
 
 // =====================================
-// COMPTEUR DES REQUETES
+// COMPTEUR
 // =====================================
 
-app.get("/api/usage", (req, res) => {
-  res.json({
-    app: "BET AGENT AI",
-    quotas: getUsage(),
-    cacheEntries: cache.size,
-    protection: "active"
-  });
-});
-
-// =====================================
-// RECUPERATION DES MATCHS
-// =====================================
-
-app.get("/api/fixtures", async (req, res) => {
+app.get("/api/usage", async (req, res) => {
   try {
-    const date =
-      req.query.date ||
-      new Date().toISOString().slice(0, 10);
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({
-        error: "Format de date invalide. Utilise AAAA-MM-JJ."
-      });
-    }
-
-    if (!process.env.API_FOOTBALL_KEY) {
-      return res.status(503).json({
-        error: "Clé API-Football non configurée sur Render."
-      });
-    }
-
-    const url =
-      `https://v3.football.api-sports.io/fixtures?date=${date}`;
-
-    const result = await trackedFetch(url, {
-      headers: {
-        "x-apisports-key": process.env.API_FOOTBALL_KEY
-      }
-    });
-
-    // Mise en cache des matchs.
-    if (!result.fromCache) {
-      setCache(url, result.data, CACHE_FIXTURES_MS);
-    }
+    await scheduledCleanup();
 
     res.json({
-      ...result.data,
-      cache: result.fromCache,
-      quotas: getUsage()
+      quotas: await getUsage(),
+      protection: "active",
+      database: "connected"
     });
-
   } catch (error) {
-    res.status(error.status || 500).json({
-      error: error.message || "Impossible de récupérer les matchs",
-      quotas: getUsage()
+    res.status(503).json({
+      error: error.message
     });
   }
 });
 
 // =====================================
-// MOTEUR DE PROBABILITES
+// MATCHS DANS LES 12 PROCHAINES HEURES
+// =====================================
+
+app.get("/api/fixtures", async (req, res) => {
+  try {
+    if (!process.env.API_FOOTBALL_KEY) {
+      return res.status(503).json({
+        error: "Clé API-Football manquante."
+      });
+    }
+
+    await scheduledCleanup();
+
+    const now = new Date();
+    const end = new Date(
+      now.getTime() + 12 * 60 * 60 * 1000
+    );
+
+    const from = now.toISOString().slice(0, 10);
+    const to = end.toISOString().slice(0, 10);
+
+    const url =
+      `https://v3.football.api-sports.io/fixtures?from=${from}&to=${to}`;
+
+    const result = await trackedFetch(
+      url,
+      "API_FOOTBALL",
+      {
+        headers: {
+          "x-apisports-key": process.env.API_FOOTBALL_KEY
+        }
+      }
+    );
+
+    const fixtures = (
+      result.data.response || []
+    ).filter(match => {
+      const kickoff = new Date(match.fixture.date);
+
+      return (
+        kickoff >= now &&
+        kickoff <= end &&
+        match.fixture.status.short === "NS"
+      );
+    });
+
+    res.json({
+      results: fixtures.length,
+      response: fixtures,
+      windowHours: 12,
+      cache: result.fromCache,
+      quotas: await getUsage()
+    });
+
+  } catch (error) {
+    res.status(error.status || 500).json({
+      error: error.message,
+      quotas: await getUsage().catch(() => null)
+    });
+  }
+});
+
+// =====================================
+// MOTEUR POISSON
 // =====================================
 
 function average(values) {
-  if (!values.length) return null;
-
-  return values.reduce((a, b) => a + b, 0) / values.length;
+  return values.reduce((a, b) => a + b, 0) /
+    values.length;
 }
 
 function poisson(lambda, goals) {
@@ -240,27 +395,32 @@ function analyzeMatch(home, away) {
     Array.isArray(team.form) &&
     team.form.length >= 3 &&
     team.form.length <= 10 &&
-    team.form.every(
-      match =>
-        Number.isFinite(match.gf) &&
-        Number.isFinite(match.ga) &&
-        match.gf >= 0 &&
-        match.ga >= 0
+    team.form.every(match =>
+      Number.isFinite(match.gf) &&
+      Number.isFinite(match.ga) &&
+      match.gf >= 0 &&
+      match.ga >= 0
     );
 
   if (!validForm(home) || !validForm(away)) {
     throw new Error(
-      "Il faut au moins 3 matchs récents valides par équipe."
+      "Il faut 3 à 10 matchs valides par équipe."
     );
   }
 
-  const homeAttack = average(home.form.map(m => m.gf));
-  const homeDefense = average(home.form.map(m => m.ga));
+  const homeAttack = average(
+    home.form.map(m => m.gf)
+  );
+  const homeDefense = average(
+    home.form.map(m => m.ga)
+  );
+  const awayAttack = average(
+    away.form.map(m => m.gf)
+  );
+  const awayDefense = average(
+    away.form.map(m => m.ga)
+  );
 
-  const awayAttack = average(away.form.map(m => m.gf));
-  const awayDefense = average(away.form.map(m => m.ga));
-
-  // Estimation statistique provisoire des buts attendus.
   const expectedHome = Math.max(
     0.15,
     Math.min(4.5, (homeAttack + awayDefense) / 2)
@@ -281,19 +441,18 @@ function analyzeMatch(home, away) {
 
   for (let h = 0; h <= 10; h++) {
     for (let a = 0; a <= 10; a++) {
-      const probability =
+      const p =
         poisson(expectedHome, h) *
         poisson(expectedAway, a);
 
-      if (h > a) homeWin += probability;
-      else if (h === a) draw += probability;
-      else awayWin += probability;
+      if (h > a) homeWin += p;
+      else if (h === a) draw += p;
+      else awayWin += p;
 
-      if (h + a >= 2) over15 += probability;
-      if (h + a >= 3) over25 += probability;
-      if (h + a >= 4) over35 += probability;
-
-      if (h > 0 && a > 0) btts += probability;
+      if (h + a >= 2) over15 += p;
+      if (h + a >= 3) over25 += p;
+      if (h + a >= 4) over35 += p;
+      if (h > 0 && a > 0) btts += p;
     }
   }
 
@@ -301,13 +460,11 @@ function analyzeMatch(home, away) {
     Math.round(value * 1000) / 10;
 
   return {
-    method: "Poisson - estimation basée sur la forme récente",
-
+    method: "Poisson",
     expectedGoals: {
       home: Number(expectedHome.toFixed(2)),
       away: Number(expectedAway.toFixed(2))
     },
-
     probabilities: {
       homeWin: percent(homeWin),
       draw: percent(draw),
@@ -318,43 +475,80 @@ function analyzeMatch(home, away) {
       under25: percent(1 - over25),
       btts: percent(btts)
     },
-
     data: {
       homeMatches: home.form.length,
       awayMatches: away.form.length
     },
-
     warning:
-      "Estimations statistiques, pas des garanties. " +
-      "Le modèle ne tient pas encore compte des blessures, " +
-      "compositions, xG ou cotes."
+      "Estimation basée uniquement sur les résultats fournis. " +
+      "Ce n'est pas une garantie de résultat."
   };
 }
 
 // =====================================
-// ROUTE ANALYSE
+// ENREGISTRER UNE ANALYSE
 // =====================================
 
-app.post("/api/analyze", (req, res) => {
+app.post("/api/analyze", async (req, res) => {
   try {
-    const { home, away } = req.body;
+    await scheduledCleanup();
 
-    if (!home || !away) {
+    const { home, away, fixtureId, matchStart } = req.body;
+
+    if (!home || !away || !fixtureId || !matchStart) {
       return res.status(400).json({
-        error: "Informations des deux équipes nécessaires."
+        error: "Match, équipes et date de coup d'envoi obligatoires."
+      });
+    }
+
+    const kickoff = new Date(matchStart);
+    const now = new Date();
+    const end = new Date(
+      now.getTime() + 12 * 60 * 60 * 1000
+    );
+
+    if (
+      Number.isNaN(kickoff.getTime()) ||
+      kickoff < now ||
+      kickoff > end
+    ) {
+      return res.status(400).json({
+        error: "Ce match n'est pas dans les 12 prochaines heures."
       });
     }
 
     const analysis = analyzeMatch(home, away);
 
+    const created = new Date();
+    const expires = new Date(
+      created.getTime() + MAX_ANALYSIS_AGE
+    );
+
+    await dbRequest("match_analyses", {
+      method: "POST",
+      headers: {
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify({
+        fixture_id: String(fixtureId),
+        home_team: home.name || "Domicile",
+        away_team: away.name || "Extérieur",
+        match_start: kickoff.toISOString(),
+        analysis,
+        created_at: created.toISOString(),
+        expires_at: expires.toISOString()
+      })
+    });
+
     res.json({
       app: "BET AGENT AI",
-      status: "Analyse terminée",
+      status: "Analyse enregistrée",
       teams: {
         home: home.name || "Domicile",
         away: away.name || "Extérieur"
       },
-      analysis
+      analysis,
+      expiresAt: expires.toISOString()
     });
 
   } catch (error) {
@@ -365,13 +559,26 @@ app.post("/api/analyze", (req, res) => {
 });
 
 // =====================================
-// ERREURS
+// HISTORIQUE DES ANALYSES
 // =====================================
 
-app.use((err, req, res, next) => {
-  res.status(500).json({
-    error: "Erreur interne du serveur."
-  });
+app.get("/api/analyses", async (req, res) => {
+  try {
+    await scheduledCleanup();
+
+    const rows = await dbRequest(
+      `match_analyses?select=*&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc`
+    );
+
+    res.json({
+      results: rows.length,
+      analyses: rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
 });
 
 // =====================================
