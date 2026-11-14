@@ -9,23 +9,22 @@ app.use(express.json({ limit: "100kb" }));
 const PORT = process.env.PORT || 3000;
 
 // =====================================
-// CONFIGURATION
+// CONFIGURATION 4.5
 // =====================================
-
-const VERSION = "4.5";
 
 const MAX_HOUR = 60;
 const MAX_DAY = 180;
-
 const MAX_ANALYSIS_AGE = 24 * 60 * 60 * 1000;
-const PREDICTION_RETENTION = 30 * 24 * 60 * 60 * 1000;
-
 const CACHE_FIXTURES_MS = 5 * 60 * 1000;
 const CACHE_CATALOG_MS = 12 * 60 * 60 * 1000;
 const RESEARCH_CACHE_MS = 6 * 60 * 60 * 1000;
-
 const MAX_RESEARCH_PER_DAY = 10;
+const MAX_SEARCHES_PER_MATCH = 6;
 const MAX_RESULTS_PER_SEARCH = 8;
+
+const PREDICTION_RETENTION_DAYS = 30;
+const PREDICTION_RETENTION_MS =
+  PREDICTION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -36,9 +35,10 @@ const THESPORTSDB_KEY = process.env.THESPORTSDB_KEY || "123";
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
+const GROQ_MODEL = "openai/gpt-oss-120b";
 
 // =====================================
-// OUTILS
+// OUTILS GENERAUX
 // =====================================
 
 function httpError(message, status = 500) {
@@ -51,33 +51,17 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function validateTeamName(value, label) {
+function validateTeamName(value, fieldName) {
   const name = String(value || "").trim();
 
   if (!name || name.length > 100) {
-    throw httpError(`${label} doit contenir entre 1 et 100 caractères.`, 400);
+    throw httpError(
+      `${fieldName} doit contenir entre 1 et 100 caractères.`,
+      400
+    );
   }
 
   return name;
-}
-
-function normalizeName(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function sameTeam(a, b) {
-  const x = normalizeName(a);
-  const y = normalizeName(b);
-
-  return x && y && (x === y || x.includes(y) || y.includes(x));
-}
-
-function percent(value) {
-  return Math.round(value * 1000) / 10;
 }
 
 function average(values) {
@@ -85,20 +69,30 @@ function average(values) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function validDate(value) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date : null;
+function poisson(lambda, goals) {
+  let factorial = 1;
+
+  for (let i = 2; i <= goals; i++) factorial *= i;
+
+  return Math.exp(-lambda) * Math.pow(lambda, goals) / factorial;
+}
+
+function percent(value) {
+  return Math.round(value * 1000) / 10;
+}
+
+function isoDate(date) {
+  return new Date(date).toISOString();
+}
+
+function safeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 // =====================================
 // SUPABASE
 // =====================================
-
-function checkDatabaseConfig() {
-  if (!SUPABASE_URL || !SUPABASE_KEY) {
-    throw new Error("Configuration Supabase manquante.");
-  }
-}
 
 function dbHeaders(extra = {}) {
   return {
@@ -107,6 +101,12 @@ function dbHeaders(extra = {}) {
     "Content-Type": "application/json",
     ...extra
   };
+}
+
+function checkDatabaseConfig() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Configuration Supabase manquante.");
+  }
 }
 
 async function dbRequest(path, options = {}) {
@@ -121,17 +121,80 @@ async function dbRequest(path, options = {}) {
   );
 
   if (!response.ok) {
-    const detail = await response.text();
-    console.error("Supabase:", detail);
-    throw new Error("Erreur de base de données Supabase.");
+    const message = await response.text();
+    console.error("Supabase:", message);
+    throw new Error("Erreur de base de données.");
   }
 
-  const body = await response.text();
-  return body ? JSON.parse(body) : null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // =====================================
-// QUOTAS
+// NETTOYAGE
+// =====================================
+
+async function cleanupExpired() {
+  const now = new Date().toISOString();
+  const dayAgo = new Date(
+    Date.now() - MAX_ANALYSIS_AGE
+  ).toISOString();
+
+  const predictionExpiry = new Date(
+    Date.now() - PREDICTION_RETENTION_MS
+  ).toISOString();
+
+  await Promise.all([
+    dbRequest(
+      `match_analyses?expires_at=lt.${encodeURIComponent(now)}`,
+      { method: "DELETE" }
+    ),
+
+    dbRequest(
+      `api_cache?expires_at=lt.${encodeURIComponent(now)}`,
+      { method: "DELETE" }
+    ),
+
+    dbRequest(
+      `api_requests?requested_at=lt.${encodeURIComponent(dayAgo)}`,
+      { method: "DELETE" }
+    ),
+
+    dbRequest(
+      `predictions?expires_at=lt.${encodeURIComponent(now)}`,
+      { method: "DELETE" }
+    ),
+
+    dbRequest(
+      `daily_reports?report_date=lt.${encodeURIComponent(
+        new Date(Date.now() - PREDICTION_RETENTION_MS)
+          .toISOString().slice(0, 10)
+      )}`,
+      { method: "DELETE" }
+    )
+  ]);
+}
+
+let cleanupRunning = false;
+
+async function scheduledCleanup() {
+  if (cleanupRunning) return;
+
+  cleanupRunning = true;
+
+  try {
+    await cleanupExpired();
+  } catch (error) {
+    console.error("Nettoyage:", error.message);
+  } finally {
+    cleanupRunning = false;
+  }
+}
+
+setInterval(scheduledCleanup, 10 * 60 * 1000);
+
+// =====================================
+// QUOTAS PERSISTANTS
 // =====================================
 
 async function reserveRequest(provider) {
@@ -150,12 +213,20 @@ async function reserveRequest(provider) {
     throw httpError("Quota API atteint.", 429);
   }
 
-  return row;
+  return {
+    hourlyUsed: Number(row.hourly_used),
+    dailyUsed: Number(row.daily_used)
+  };
 }
 
 async function getUsage() {
-  const hourAgo = new Date(Date.now() - 3600000).toISOString();
-  const dayAgo = new Date(Date.now() - 86400000).toISOString();
+  const hourAgo = new Date(
+    Date.now() - 60 * 60 * 1000
+  ).toISOString();
+
+  const dayAgo = new Date(
+    Date.now() - 24 * 60 * 60 * 1000
+  ).toISOString();
 
   const rows = await dbRequest(
     `api_requests?select=requested_at&requested_at=gt.${encodeURIComponent(dayAgo)}`
@@ -184,8 +255,10 @@ async function getUsage() {
 // =====================================
 
 async function getCache(key) {
+  const encoded = encodeURIComponent(key);
+
   const rows = await dbRequest(
-    `api_cache?cache_key=eq.${encodeURIComponent(key)}&select=data,expires_at&limit=1`
+    `api_cache?cache_key=eq.${encoded}&select=data,expires_at&limit=1`
   );
 
   if (!rows.length) return null;
@@ -194,7 +267,7 @@ async function getCache(key) {
 
   if (new Date(item.expires_at).getTime() <= Date.now()) {
     await dbRequest(
-      `api_cache?cache_key=eq.${encodeURIComponent(key)}`,
+      `api_cache?cache_key=eq.${encoded}`,
       { method: "DELETE" }
     );
     return null;
@@ -204,6 +277,10 @@ async function getCache(key) {
 }
 
 async function setCache(key, provider, data, duration) {
+  const expires = new Date(
+    Date.now() + duration
+  ).toISOString();
+
   await dbRequest("api_cache?on_conflict=cache_key", {
     method: "POST",
     headers: {
@@ -214,7 +291,7 @@ async function setCache(key, provider, data, duration) {
       provider,
       data,
       created_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + duration).toISOString()
+      expires_at: expires
     })
   });
 }
@@ -238,7 +315,10 @@ async function trackedFetch(
   await reserveRequest(provider);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    15000
+  );
 
   let response;
 
@@ -253,7 +333,7 @@ async function trackedFetch(
 
   if (!response.ok) {
     throw httpError(
-      `${provider}: HTTP ${response.status}`,
+      `Erreur ${provider}: HTTP ${response.status}`,
       response.status
     );
   }
@@ -266,7 +346,7 @@ async function trackedFetch(
 }
 
 // =====================================
-// FOURNISSEUR 1 : FOOTBALL-DATA
+// FOURNISSEUR FOOTBALL-DATA
 // =====================================
 
 async function footballDataFetch(
@@ -274,7 +354,10 @@ async function footballDataFetch(
   cacheDuration = CACHE_FIXTURES_MS
 ) {
   if (!FOOTBALL_DATA_TOKEN) {
-    throw httpError("Football-Data non configuré.", 503);
+    throw httpError(
+      "Jeton FOOTBALL_DATA_TOKEN manquant dans Render.",
+      503
+    );
   }
 
   return trackedFetch(
@@ -289,13 +372,53 @@ async function footballDataFetch(
   );
 }
 
+app.get("/api/providers/football-data/test", async (req, res) => {
+  try {
+    const result = await footballDataFetch(
+      "competitions/",
+      CACHE_CATALOG_MS
+    );
+
+    const competitions = safeArray(
+      result.data.competitions
+    ).map(c => ({
+      id: c.id,
+      name: c.name,
+      country: c.area?.name,
+      countryCode: c.area?.code,
+      code: c.code,
+      type: c.type,
+      emblem: c.emblem
+    }));
+
+    res.json({
+      provider: "Football-Data.org",
+      status: "connected",
+      competitionsAvailable: competitions.length,
+      competitions,
+      cache: result.fromCache,
+      quotas: await getUsage()
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({
+      provider: "Football-Data.org",
+      status: "error",
+      message: error.message,
+      quotas: await getUsage().catch(() => null)
+    });
+  }
+});
+
 // =====================================
-// FOURNISSEUR 2 : FOOTBALL CHARTS
+// FOURNISSEUR FOOTBALL CHARTS
 // =====================================
 
 async function footballChartsFetch(endpoint) {
   if (!FOOTBALL_CHARTS_KEY) {
-    throw httpError("Football Charts non configuré.", 503);
+    throw httpError(
+      "Clé FOOTBALL_CHARTS_KEY manquante dans Render.",
+      503
+    );
   }
 
   return trackedFetch(
@@ -310,8 +433,36 @@ async function footballChartsFetch(endpoint) {
   );
 }
 
+app.get("/api/providers/football-charts/test", async (req, res) => {
+  try {
+    const result = await footballChartsFetch("leagues/");
+    const data = result.data;
+
+    const leagues = Array.isArray(data)
+      ? data
+      : safeArray(data.leagues || data.results);
+
+    res.json({
+      provider: "Football Charts",
+      status: "connected",
+      leaguesAvailable: leagues.length,
+      leagues,
+      teamsEndpoint: "Non confirmé : aucune route équipes n'est appelée.",
+      cache: result.fromCache,
+      quotas: await getUsage()
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({
+      provider: "Football Charts",
+      status: "error",
+      message: error.message,
+      quotas: await getUsage().catch(() => null)
+    });
+  }
+});
+
 // =====================================
-// FOURNISSEUR 3 : THESPORTSDB
+// FOURNISSEUR THESPORTSDB
 // =====================================
 
 async function theSportsDBFetch(endpoint) {
@@ -326,87 +477,35 @@ async function theSportsDBFetch(endpoint) {
   );
 }
 
-// =====================================
-// TEST DES FOURNISSEURS
-// =====================================
-
-app.get("/api/providers/football-data/test", async (req, res) => {
+app.get("/api/providers/thesportsdb/test", async (req, res) => {
   try {
-    const result = await footballDataFetch(
-      "competitions/",
-      CACHE_CATALOG_MS
-    );
-
-    const competitions = safeArray(
-      result.data.competitions
-    );
+    const result = await theSportsDBFetch("all_leagues.php");
+    const leagues = safeArray(result.data.leagues);
 
     res.json({
-      provider: "Football-Data.org",
+      provider: "TheSportsDB",
       status: "connected",
-      competitionsAvailable: competitions.length,
+      leaguesAvailable: leagues.length,
+      footballLeaguesAvailable: leagues.filter(
+        league =>
+          String(league.strSport || "").toLowerCase() === "soccer"
+      ).length,
+      leagues,
       cache: result.fromCache,
       quotas: await getUsage()
     });
   } catch (error) {
     res.status(error.status || 500).json({
-      provider: "Football-Data.org",
-      status: "error",
-      message: error.message
-    });
-  }
-});
-
-app.get("/api/providers/football-charts/test", async (req, res) => {
-  try {
-    const result = await footballChartsFetch("leagues/");
-
-    const leagues = Array.isArray(result.data)
-      ? result.data
-      : safeArray(result.data.leagues || result.data.results);
-
-    res.json({
-      provider: "Football Charts",
-      status: "connected",
-      leaguesAvailable: leagues.length,
-      matchVerification: "not_confirmed",
-      cache: result.fromCache
-    });
-  } catch (error) {
-    res.status(error.status || 500).json({
-      provider: "Football Charts",
-      status: "error",
-      message: error.message
-    });
-  }
-});
-
-app.get("/api/providers/thesportsdb/test", async (req, res) => {
-  try {
-    const result = await theSportsDBFetch("all_leagues.php");
-
-    const leagues = safeArray(result.data.leagues)
-      .filter(x =>
-        String(x.strSport || "").toLowerCase() === "soccer"
-      );
-
-    res.json({
-      provider: "TheSportsDB",
-      status: "connected",
-      footballLeaguesAvailable: leagues.length,
-      cache: result.fromCache
-    });
-  } catch (error) {
-    res.status(error.status || 500).json({
       provider: "TheSportsDB",
       status: "error",
-      message: error.message
+      message: error.message,
+      quotas: await getUsage().catch(() => null)
     });
   }
 });
 
 // =====================================
-// CATALOGUE DES CHAMPIONNATS
+// CATALOGUE MULTI-FOURNISSEURS
 // =====================================
 
 app.get("/api/catalog", async (req, res) => {
@@ -427,12 +526,15 @@ app.get("/api/catalog", async (req, res) => {
       name: c.name,
       country: c.area?.name || "",
       countryCode: c.area?.code || "",
+      code: c.code || "",
+      type: c.type || "",
       emblem: c.emblem || ""
     }));
 
     providers.push({
       provider: "Football-Data.org",
       status: "connected",
+      count: competitions.length,
       competitions
     });
   } catch (error) {
@@ -440,70 +542,102 @@ app.get("/api/catalog", async (req, res) => {
       provider: "Football-Data.org",
       message: error.message
     });
+
+    providers.push({
+      provider: "Football-Data.org",
+      status: "error",
+      count: 0,
+      competitions: []
+    });
   }
 
   try {
     const result = await footballChartsFetch("leagues/");
-
     const raw = Array.isArray(result.data)
       ? result.data
       : safeArray(result.data.leagues || result.data.results);
 
+    const competitions = raw.map(league => ({
+      provider: "football-charts",
+      id: String(
+        league.league ||
+        league.id ||
+        league.idLeague ||
+        league.name ||
+        ""
+      ),
+      name: league.name || league.league || "Championnat",
+      country: league.country || "",
+      seasons: safeArray(league.seasons),
+      url: league.url || ""
+    }));
+
     providers.push({
       provider: "Football Charts",
       status: "connected",
-      competitions: raw.map(item => ({
-        provider: "football-charts",
-        id: String(
-          item.league || item.id || item.idLeague || item.name || ""
-        ),
-        name: item.name || item.league || "Championnat",
-        country: item.country || "",
-        seasons: safeArray(item.seasons),
-        url: item.url || ""
-      }))
+      count: competitions.length,
+      competitions,
+      teamsAvailable: false
     });
   } catch (error) {
     errors.push({
       provider: "Football Charts",
       message: error.message
+    });
+
+    providers.push({
+      provider: "Football Charts",
+      status: "error",
+      count: 0,
+      competitions: []
     });
   }
 
   try {
     const result = await theSportsDBFetch("all_leagues.php");
 
-    const raw = safeArray(result.data.leagues)
-      .filter(item =>
-        String(item.strSport || "").toLowerCase() === "soccer"
-      );
+    const raw = safeArray(result.data.leagues).filter(
+      league =>
+        String(league.strSport || "").toLowerCase() === "soccer"
+    );
+
+    const competitions = raw.map(league => ({
+      provider: "thesportsdb",
+      id: String(league.idLeague || ""),
+      name: league.strLeague || "Championnat",
+      country: league.strCountry || "",
+      alternateName: league.strLeagueAlternate || ""
+    }));
 
     providers.push({
       provider: "TheSportsDB",
       status: "connected",
-      competitions: raw.map(item => ({
-        provider: "thesportsdb",
-        id: String(item.idLeague),
-        name: item.strLeague,
-        country: item.strCountry || ""
-      }))
+      count: competitions.length,
+      competitions
     });
   } catch (error) {
     errors.push({
       provider: "TheSportsDB",
       message: error.message
     });
+
+    providers.push({
+      provider: "TheSportsDB",
+      status: "error",
+      count: 0,
+      competitions: []
+    });
   }
 
   const total = providers.reduce(
-    (sum, p) => sum + p.competitions.length,
+    (sum, item) => sum + item.count,
     0
   );
 
   res.json({
     app: "BET AGENT AI",
-    version: VERSION,
-    status: total ? "completed" : "unavailable",
+    version: "4.5",
+    status: total > 0 ? "completed" : "unavailable",
     totalCompetitionEntries: total,
     providers,
     errors
@@ -511,27 +645,33 @@ app.get("/api/catalog", async (req, res) => {
 });
 
 // =====================================
-// EQUIPES PAR CHAMPIONNAT
+// CATALOGUE DES EQUIPES
 // =====================================
 
 app.get("/api/catalog/teams", async (req, res) => {
   try {
-    const provider = String(req.query.provider || "")
-      .trim()
-      .toLowerCase();
+    const provider = String(
+      req.query.provider || ""
+    ).trim().toLowerCase();
 
     const competitionId = String(
       req.query.competitionId || req.query.leagueId || ""
     ).trim();
 
     if (!competitionId || competitionId.length > 50) {
-      throw httpError("competitionId obligatoire.", 400);
+      throw httpError(
+        "Indique competitionId (ou leagueId).",
+        400
+      );
     }
 
     let teams = [];
     let cache = false;
+    let providerName = "";
 
     if (provider === "football-data") {
+      providerName = "Football-Data.org";
+
       const result = await footballDataFetch(
         `competitions/${encodeURIComponent(competitionId)}/teams`,
         CACHE_CATALOG_MS
@@ -543,9 +683,13 @@ app.get("/api/catalog/teams", async (req, res) => {
         id: team.id,
         name: team.name,
         shortName: team.shortName || "",
+        tla: team.tla || "",
         crest: team.crest || ""
       }));
+
     } else if (provider === "thesportsdb") {
+      providerName = "TheSportsDB";
+
       const result = await theSportsDBFetch(
         `lookup_all_teams.php?id=${encodeURIComponent(competitionId)}`
       );
@@ -559,9 +703,10 @@ app.get("/api/catalog/teams", async (req, res) => {
         country: team.strCountry || "",
         badge: team.strTeamBadge || ""
       }));
+
     } else if (provider === "football-charts") {
       throw httpError(
-        "Route officielle des équipes non confirmée pour Football Charts.",
+        "Endpoint des équipes Football Charts non confirmé.",
         501
       );
     } else {
@@ -569,13 +714,15 @@ app.get("/api/catalog/teams", async (req, res) => {
     }
 
     res.json({
-      version: VERSION,
-      provider,
+      app: "BET AGENT AI",
+      version: "4.5",
+      provider: providerName,
       competitionId,
       results: teams.length,
       teams,
       cache
     });
+
   } catch (error) {
     res.status(error.status || 500).json({
       status: "error",
@@ -600,7 +747,10 @@ function checkResearchLimit() {
   }
 
   if (researchCount >= MAX_RESEARCH_PER_DAY) {
-    throw httpError("Quota de recherche Internet atteint.", 429);
+    throw httpError(
+      "Limite quotidienne de recherches Internet atteinte.",
+      429
+    );
   }
 
   researchCount++;
@@ -613,7 +763,13 @@ function decodeXml(value = "") {
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, n) =>
+      String.fromCharCode(Number(n))
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) =>
+      String.fromCharCode(parseInt(n, 16))
+    );
 }
 
 function cleanText(value = "") {
@@ -624,33 +780,36 @@ function cleanText(value = "") {
 }
 
 function getXmlTag(block, tag) {
-  const match = block.match(
-    new RegExp(
-      `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
-      "i"
-    )
+  const expression = new RegExp(
+    `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`,
+    "i"
   );
 
+  const match = block.match(expression);
   return match ? cleanText(match[1]) : "";
 }
 
 function parseGoogleNewsRSS(xml) {
-  const blocks = xml.match(
-    /<item\b[^>]*>[\s\S]*?<\/item>/gi
-  ) || [];
+  const blocks =
+    xml.match(/<item\b[^>]*>[\s\S]*?<\/item>/gi) || [];
 
   return blocks.map(block => {
+    const title = getXmlTag(block, "title");
+    const link = getXmlTag(block, "link");
     const published = getXmlTag(block, "pubDate");
+    const description = getXmlTag(block, "description");
+    const source = getXmlTag(block, "source");
+
     const timestamp = Date.parse(published);
 
     return {
-      title: getXmlTag(block, "title"),
-      link: getXmlTag(block, "link"),
-      source: getXmlTag(block, "source") || "Source non précisée",
+      title,
+      link,
+      source: source || "Source non précisée",
       publishedAt: Number.isFinite(timestamp)
         ? new Date(timestamp).toISOString()
         : null,
-      description: getXmlTag(block, "description").slice(0, 700)
+      description: description.slice(0, 700)
     };
   }).filter(item =>
     item.title &&
@@ -664,7 +823,10 @@ async function googleNewsSearch(query) {
   const cached = await getCache(cacheKey);
 
   if (cached !== null) {
-    return { ...cached, fromCache: true };
+    return {
+      ...cached,
+      fromCache: true
+    };
   }
 
   const params = new URLSearchParams({
@@ -674,16 +836,41 @@ async function googleNewsSearch(query) {
     ceid: "FR:fr"
   });
 
-  const response = await fetch(
-    `https://news.google.com/rss/search?${params}`,
-    { signal: AbortSignal.timeout(12000) }
+  const url =
+    `https://news.google.com/rss/search?${params.toString()}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    12000
   );
 
+  let response;
+
+  try {
+    response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "BET-AGENT-AI/4.5",
+        Accept: "application/rss+xml, application/xml, text/xml"
+      }
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
-    throw new Error(`Google Actualités HTTP ${response.status}`);
+    throw new Error(
+      `Google Actualités HTTP ${response.status}.`
+    );
   }
 
   const xml = await response.text();
+
+  if (!xml.includes("<rss") && !xml.includes("<feed")) {
+    throw new Error("Réponse RSS invalide.");
+  }
+
   const articles = parseGoogleNewsRSS(xml)
     .slice(0, MAX_RESULTS_PER_SEARCH);
 
@@ -707,7 +894,7 @@ async function googleNewsSearch(query) {
 function buildResearchPlan(home, away) {
   return [
     {
-      category: "Actualités du match",
+      category: "Match et actualités",
       query: `"${home}" "${away}" football match actualités`
     },
     {
@@ -719,10 +906,51 @@ function buildResearchPlan(home, away) {
       query: `"${away}" blessures blessés suspendus football`
     },
     {
-      category: "Compositions",
+      category: "Compositions et tactique",
       query: `"${home}" "${away}" compositions probables football`
     }
   ];
+}
+
+function buildFollowUpPlan(home, away, articles) {
+  const text = articles.map(article =>
+    `${article.title} ${article.description}`
+  ).join(" ").toLowerCase();
+
+  const pattern =
+    /\b(blessé|blessure|injury|injured|absent|absence|suspendu|suspension|forfait|incertain|doubtful|out for|ruled out)\b/i;
+
+  if (!pattern.test(text)) return [];
+
+  return [
+    {
+      category: "Vérification des absences",
+      query: `"${home}" OR "${away}" blessure joueur forfait dernière nouvelle`
+    },
+    {
+      category: "Remplaçants et compositions",
+      query: `"${home}" "${away}" remplaçant titulaire absent composition`
+    }
+  ];
+}
+
+function detectPossibleAbsences(articles) {
+  const pattern =
+    /\b(blessé|blessure|injury|injured|absent|absence|suspendu|suspension|forfait|incertain|doubtful|ruled out)\b/i;
+
+  return articles
+    .filter(article =>
+      pattern.test(`${article.title} ${article.description}`)
+    )
+    .map(article => ({
+      title: article.title,
+      source: article.source,
+      publishedAt: article.publishedAt,
+      link: article.link,
+      status: "Information à vérifier",
+      warning:
+        "La présence de mots liés aux absences ne confirme pas une blessure."
+    }));
 }
 
 app.get("/api/research", async (req, res) => {
@@ -730,79 +958,98 @@ app.get("/api/research", async (req, res) => {
     const home = validateTeamName(req.query.home, "home");
     const away = validateTeamName(req.query.away, "away");
 
-    if (normalizeName(home) === normalizeName(away)) {
+    if (home.toLowerCase() === away.toLowerCase()) {
       throw httpError("Les équipes doivent être différentes.", 400);
     }
 
     checkResearchLimit();
 
+    const plan = buildResearchPlan(home, away);
     const searches = [];
+    const searchErrors = [];
     let articles = [];
-    const errors = [];
 
-    for (const item of buildResearchPlan(home, away)) {
+    for (const item of plan) {
       try {
         const result = await googleNewsSearch(item.query);
 
         searches.push({
           category: item.category,
+          query: item.query,
           results: result.resultCount,
           cache: result.fromCache
         });
 
         articles.push(...result.articles);
       } catch (error) {
-        errors.push({
+        searchErrors.push({
           query: item.query,
           message: error.message
         });
       }
     }
 
-    const unique = new Map();
+    const uniqueArticles = list => {
+      const seen = new Set();
 
-    for (const article of articles) {
-      unique.set(article.link, article);
-    }
+      return list.filter(article => {
+        if (seen.has(article.link)) return false;
+        seen.add(article.link);
+        return true;
+      });
+    };
 
-    articles = [...unique.values()].sort(
-      (a, b) =>
-        new Date(b.publishedAt || 0) -
-        new Date(a.publishedAt || 0)
+    articles = uniqueArticles(articles);
+
+    const followUps = buildFollowUpPlan(
+      home,
+      away,
+      articles
     );
 
-    const absencePattern =
-      /blessure|blessé|injury|injured|absent|suspendu|suspension|forfait|doubtful|ruled out/i;
+    for (const item of followUps.slice(
+      0,
+      MAX_SEARCHES_PER_MATCH - searches.length
+    )) {
+      try {
+        const result = await googleNewsSearch(item.query);
 
-    const possibleAbsences = articles
-      .filter(article =>
-        absencePattern.test(
-          `${article.title} ${article.description}`
-        )
-      )
-      .map(article => ({
-        title: article.title,
-        source: article.source,
-        publishedAt: article.publishedAt,
-        link: article.link,
-        status: "À vérifier"
-      }));
+        searches.push({
+          category: item.category,
+          query: item.query,
+          results: result.resultCount,
+          cache: result.fromCache
+        });
+
+        articles.push(...result.articles);
+      } catch (error) {
+        searchErrors.push({
+          query: item.query,
+          message: error.message
+        });
+      }
+    }
+
+    articles = uniqueArticles(articles);
+
+    articles.sort((a, b) =>
+      new Date(b.publishedAt || 0).getTime() -
+      new Date(a.publishedAt || 0).getTime()
+    );
 
     res.json({
       app: "BET AGENT AI",
-      version: VERSION,
+      version: "4.5",
+      status: "completed",
       teams: { home, away },
       searchEngine: "Google Actualités RSS",
+      searchesGenerated: searches.length,
       searches,
       articlesFound: articles.length,
       articles,
-      possibleAbsences,
-      limitations: [
-        "Les titres et extraits RSS sont analysés.",
-        "Les absences ne sont pas automatiquement confirmées.",
-        "Les articles postérieurs au coup d'envoi ne doivent pas justifier un pronostic pré-match."
-      ],
-      errors,
+      possibleAbsences: detectPossibleAbsences(articles),
+      followUpTriggered: followUps.length > 0,
+      errors: searchErrors,
       researchUsage: {
         usedToday: researchCount,
         remainingToday: Math.max(
@@ -810,8 +1057,10 @@ app.get("/api/research", async (req, res) => {
           MAX_RESEARCH_PER_DAY - researchCount
         ),
         dailyLimit: MAX_RESEARCH_PER_DAY
-      }
+      },
+      footballApiQuotas: await getUsage()
     });
+
   } catch (error) {
     res.status(error.status || 500).json({
       status: "error",
@@ -826,8 +1075,12 @@ app.get("/api/research", async (req, res) => {
 
 app.get("/api/fixtures", async (req, res) => {
   try {
+    await scheduledCleanup();
+
     const now = new Date();
-    const end = new Date(now.getTime() + 12 * 3600000);
+    const end = new Date(
+      now.getTime() + 12 * 60 * 60 * 1000
+    );
 
     const dateFrom = now.toISOString().slice(0, 10);
     const dateTo = end.toISOString().slice(0, 10);
@@ -836,24 +1089,17 @@ app.get("/api/fixtures", async (req, res) => {
       `matches?dateFrom=${dateFrom}&dateTo=${dateTo}`
     );
 
-    const fixtures = safeArray(result.data.matches)
-      .filter(match => {
-        const kickoff = validDate(match.utcDate);
+    const fixtures = safeArray(
+      result.data.matches
+    ).filter(match => {
+      const kickoff = new Date(match.utcDate);
 
-        return kickoff &&
-          kickoff >= now &&
-          kickoff <= end &&
-          match.status === "SCHEDULED";
-      })
-      .map(match => ({
-        provider: "football-data",
-        fixtureId: String(match.id),
-        home: match.homeTeam?.name,
-        away: match.awayTeam?.name,
-        matchStart: match.utcDate,
-        competition: match.competition?.name,
-        status: match.status
-      }));
+      return (
+        kickoff >= now &&
+        kickoff <= end &&
+        match.status === "SCHEDULED"
+      );
+    });
 
     res.json({
       provider: "Football-Data.org",
@@ -863,9 +1109,11 @@ app.get("/api/fixtures", async (req, res) => {
       cache: result.fromCache,
       quotas: await getUsage()
     });
+
   } catch (error) {
     res.status(error.status || 500).json({
-      error: error.message
+      error: error.message,
+      quotas: await getUsage().catch(() => null)
     });
   }
 });
@@ -874,57 +1122,83 @@ app.get("/api/fixtures", async (req, res) => {
 // MOTEUR POISSON
 // =====================================
 
-function poisson(lambda, goals) {
-  let factorial = 1;
-
-  for (let i = 2; i <= goals; i++) {
-    factorial *= i;
-  }
-
-  return (
-    Math.exp(-lambda) *
-    Math.pow(lambda, goals) /
-    factorial
-  );
-}
-
-function validateForm(form, label) {
-  if (!Array.isArray(form) || form.length < 3 || form.length > 10) {
-    throw httpError(`${label} : indique 3 à 10 résultats.`, 400);
-  }
-
-  return form.map(match => {
-    const gf = Number(match.gf);
-    const ga = Number(match.ga);
-
-    if (
-      !Number.isInteger(gf) ||
-      !Number.isInteger(ga) ||
-      gf < 0 ||
-      ga < 0
-    ) {
-      throw httpError(`${label} : résultats invalides.`, 400);
+function validateForm(form, label, required = true) {
+  if (!Array.isArray(form)) {
+    if (required) {
+      throw httpError(
+        `${label} : indique 3 à 10 résultats.`,
+        400
+      );
     }
+    return null;
+  }
 
-    return { gf, ga };
-  });
+  if (form.length < 3 || form.length > 10) {
+    throw httpError(
+      `${label} : indique entre 3 et 10 matchs.`,
+      400
+    );
+  }
+
+  const valid = form.every(match =>
+    match &&
+    Number.isFinite(Number(match.gf)) &&
+    Number.isFinite(Number(match.ga)) &&
+    Number(match.gf) >= 0 &&
+    Number(match.ga) >= 0 &&
+    Number.isInteger(Number(match.gf)) &&
+    Number.isInteger(Number(match.ga))
+  );
+
+  if (!valid) {
+    throw httpError(
+      `${label} : gf et ga doivent être des buts entiers positifs.`,
+      400
+    );
+  }
+
+  return form.map(match => ({
+    gf: Number(match.gf),
+    ga: Number(match.ga)
+  }));
 }
 
 function analyzeMatch(home, away) {
-  const homeForm = validateForm(
+  const homeHomeForm = validateForm(
     home.homeForm || home.form,
-    "Forme domicile"
+    "Forme domicile",
+    true
   );
 
-  const awayForm = validateForm(
+  const awayAwayForm = validateForm(
     away.awayForm || away.form,
-    "Forme extérieure"
+    "Forme extérieure",
+    true
   );
 
-  const homeAttack = average(homeForm.map(x => x.gf));
-  const homeDefense = average(homeForm.map(x => x.ga));
-  const awayAttack = average(awayForm.map(x => x.gf));
-  const awayDefense = average(awayForm.map(x => x.ga));
+  const homeAwayForm = home.awayForm
+    ? validateForm(home.awayForm, "Forme extérieure domicile", true)
+    : null;
+
+  const awayHomeForm = away.homeForm
+    ? validateForm(away.homeForm, "Forme domicile extérieur", true)
+    : null;
+
+  const homeAttack = average(
+    homeHomeForm.map(match => match.gf)
+  );
+
+  const homeDefense = average(
+    homeHomeForm.map(match => match.ga)
+  );
+
+  const awayAttack = average(
+    awayAwayForm.map(match => match.gf)
+  );
+
+  const awayDefense = average(
+    awayAwayForm.map(match => match.ga)
+  );
 
   const expectedHome = Math.max(
     0.15,
@@ -944,38 +1218,25 @@ function analyzeMatch(home, away) {
   let over35 = 0;
   let btts = 0;
 
-  const scorelines = [];
-
   for (let h = 0; h <= 10; h++) {
     for (let a = 0; a <= 10; a++) {
-      const probability =
+      const p =
         poisson(expectedHome, h) *
         poisson(expectedAway, a);
 
-      scorelines.push({
-        score: `${h}-${a}`,
-        homeGoals: h,
-        awayGoals: a,
-        probability: percent(probability)
-      });
+      if (h > a) homeWin += p;
+      else if (h === a) draw += p;
+      else awayWin += p;
 
-      if (h > a) homeWin += probability;
-      else if (h === a) draw += probability;
-      else awayWin += probability;
-
-      if (h + a >= 2) over15 += probability;
-      if (h + a >= 3) over25 += probability;
-      if (h + a >= 4) over35 += probability;
-      if (h > 0 && a > 0) btts += probability;
+      if (h + a >= 2) over15 += p;
+      if (h + a >= 3) over25 += p;
+      if (h + a >= 4) over35 += p;
+      if (h > 0 && a > 0) btts += p;
     }
   }
 
-  scorelines.sort(
-    (a, b) => b.probability - a.probability
-  );
-
   return {
-    method: "Poisson domicile / extérieur",
+    method: "Poisson avec distinction domicile/extérieur",
 
     expectedGoals: {
       home: Number(expectedHome.toFixed(2)),
@@ -993,342 +1254,257 @@ function analyzeMatch(home, away) {
       btts: percent(btts)
     },
 
-    mostLikelyScores: scorelines.slice(0, 5),
-
     data: {
-      homeMatches: homeForm.length,
-      awayMatches: awayForm.length
+      homeTeamHomeMatches: homeHomeForm.length,
+      awayTeamAwayMatches: awayAwayForm.length,
+      homeTeamAwayMatches: homeAwayForm ? homeAwayForm.length : 0,
+      awayTeamHomeMatches: awayHomeForm ? awayHomeForm.length : 0,
+      additionalSplitFormsProvided: Boolean(
+        homeAwayForm && awayHomeForm
+      )
+    },
+
+    calculation: {
+      homeExpectedGoals:
+        "Moyenne entre buts marqués à domicile par l'équipe qui reçoit et buts encaissés à l'extérieur par l'équipe visiteuse.",
+      awayExpectedGoals:
+        "Moyenne entre buts marqués à l'extérieur par l'équipe visiteuse et buts encaissés à domicile par l'équipe qui reçoit."
     },
 
     warning:
-      "Estimation mathématique fondée sur les résultats saisis. Ce n'est pas une garantie."
+      "Estimation statistique basée sur les résultats fournis. Elle ne garantit pas le résultat."
   };
 }
 
 // =====================================
-// VERIFICATION FOOTBALL-DATA
+// GENERATION DES PRONOSTICS 4.5
 // =====================================
 
-async function verifyFootballData(fixtureId, home, away, kickoff) {
-  if (!FOOTBALL_DATA_TOKEN) {
-    return {
-      provider: "football-data",
-      status: "unavailable",
-      confirmed: false,
-      reason: "Fournisseur non configuré."
-    };
-  }
-
-  if (!/^\d+$/.test(String(fixtureId))) {
-    return {
-      provider: "football-data",
-      status: "not_checked",
-      confirmed: false,
-      reason: "Identifiant Football-Data non fourni."
-    };
-  }
-
-  try {
-    const result = await footballDataFetch(
-      `matches/${encodeURIComponent(fixtureId)}`
-    );
-
-    const match = result.data;
-
-    const teamsMatch =
-      sameTeam(match.homeTeam?.name, home) &&
-      sameTeam(match.awayTeam?.name, away);
-
-    const dateMatch = kickoff &&
-      validDate(match.utcDate) &&
-      Math.abs(
-        new Date(match.utcDate).getTime() - kickoff.getTime()
-      ) <= 6 * 60 * 60 * 1000;
-
-    const confirmed = Boolean(teamsMatch && dateMatch);
-
-    return {
-      provider: "football-data",
-      status: confirmed ? "confirmed" : "conflict",
-      confirmed,
-      teamsMatch,
-      dateMatch,
-      matchId: String(match.id),
-      matchStatus: match.status,
-      home: match.homeTeam?.name,
-      away: match.awayTeam?.name,
-      matchStart: match.utcDate,
-      cache: result.fromCache
-    };
-  } catch (error) {
-    return {
-      provider: "football-data",
-      status: "error",
-      confirmed: false,
-      reason: error.message
-    };
-  }
-}
-
-// =====================================
-// VERIFICATION THESPORTSDB
-// =====================================
-
-async function searchSportsDbTeam(name) {
-  const result = await theSportsDBFetch(
-    `searchteams.php?t=${encodeURIComponent(name)}`
-  );
-
-  const teams = safeArray(result.data.teams);
-
-  return teams.find(team =>
-    sameTeam(team.strTeam, name)
-  ) || null;
-}
-
-async function verifySportsDb(home, away, kickoff) {
-  try {
-    const [homeTeam, awayTeam] = await Promise.all([
-      searchSportsDbTeam(home),
-      searchSportsDbTeam(away)
-    ]);
-
-    if (!homeTeam || !awayTeam) {
-      return {
-        provider: "thesportsdb",
-        status: "not_found",
-        confirmed: false,
-        reason: "Une ou deux équipes introuvables."
-      };
-    }
-
-    const result = await theSportsDBFetch(
-      `eventsnext.php?id=${encodeURIComponent(homeTeam.idTeam)}`
-    );
-
-    const events = safeArray(result.data.events);
-
-    const target = events.find(event => {
-      const teamsMatch =
-        sameTeam(event.strHomeTeam, home) &&
-        sameTeam(event.strAwayTeam, away);
-
-      if (!teamsMatch) return false;
-
-      if (!kickoff) return true;
-
-      const eventDate = validDate(
-        `${event.date || ""}T${event.strTime || "00:00:00"}Z`
-      );
-
-      return eventDate &&
-        Math.abs(eventDate.getTime() - kickoff.getTime()) <=
-          24 * 60 * 60 * 1000;
-    });
-
-    if (!target) {
-      return {
-        provider: "thesportsdb",
-        status: "not_found",
-        confirmed: false,
-        reason: "Match correspondant non trouvé dans les prochains événements."
-      };
-    }
-
-    return {
-      provider: "thesportsdb",
-      status: "confirmed",
-      confirmed: true,
-      eventId: target.idEvent,
-      home: target.strHomeTeam,
-      away: target.strAwayTeam,
-      matchDate: target.date
-    };
-  } catch (error) {
-    return {
-      provider: "thesportsdb",
-      status: "error",
-      confirmed: false,
-      reason: error.message
-    };
-  }
-}
-
-// =====================================
-// VERIFICATION DES TROIS FOURNISSEURS
-// =====================================
-
-async function verifyAllProviders(
+function predictionKey(
   fixtureId,
-  home,
-  away,
-  kickoff
+  market,
+  selection,
+  line = null
 ) {
-  const results = await Promise.all([
-    verifyFootballData(fixtureId, home, away, kickoff),
-
-    verifySportsDb(home, away, kickoff),
-
-    Promise.resolve({
-      provider: "football-charts",
-      status: "not_verified",
-      confirmed: false,
-      reason:
-        "Catalogue des championnats disponible, mais route officielle de vérification des matchs non confirmée."
-    })
-  ]);
-
-  const confirmed = results.filter(item => item.confirmed);
-
-  return {
-    providers: results,
-    confirmedCount: confirmed.length,
-    accepted: confirmed.length >= 1,
-    rule: "Une seule source fiable suffit.",
-    sourceUsed: confirmed.map(item => item.provider)
-  };
+  return [
+    String(fixtureId),
+    market,
+    selection,
+    line === null ? "" : String(line)
+  ].join("|").toLowerCase();
 }
 
-// =====================================
-// GENERATION DES PRONOSTICS
-// =====================================
-
-function generatePredictions(analysis) {
-  const p = analysis.probabilities;
-  const xg = analysis.expectedGoals;
-
-  const predictions = [];
-
-  function add(market, selection, probability, line = null) {
-    if (
-      !Number.isFinite(probability) ||
-      probability <= 0 ||
-      probability > 100
-    ) return;
-
-    predictions.push({
-      market,
-      selection,
-      probability: Number(probability.toFixed(1)),
-      line
-    });
-  }
-
-  // 1X2
-  add("1X2", "Domicile", p.homeWin);
-  add("1X2", "Match nul", p.draw);
-  add("1X2", "Extérieur", p.awayWin);
-
-  // Double chance
-  add("DOUBLE_CHANCE", "1X", p.homeWin + p.draw);
-  add("DOUBLE_CHANCE", "X2", p.draw + p.awayWin);
-  add("DOUBLE_CHANCE", "12", p.homeWin + p.awayWin);
-
-  // Buts totaux
-  add("TOTAL_GOALS", "Over 1.5", p.over15, 1.5);
-  add("TOTAL_GOALS", "Over 2.5", p.over25, 2.5);
-  add("TOTAL_GOALS", "Over 3.5", p.over35, 3.5);
-  add("TOTAL_GOALS", "Under 2.5", p.under25, 2.5);
-
-  // BTTS
-  add("BTTS", "Oui", p.btts);
-  add("BTTS", "Non", 100 - p.btts);
-
-  // Buts par équipe : 1+ à 6+
-  for (let goals = 1; goals <= 6; goals++) {
-    let homeProbability = 0;
-    let awayProbability = 0;
-
-    for (let i = goals; i <= 12; i++) {
-      homeProbability += poisson(xg.home, i);
-      awayProbability += poisson(xg.away, i);
-    }
-
-    add(
-      "TEAM_GOALS_HOME",
-      `Domicile ${goals}+`,
-      percent(homeProbability),
-      goals
-    );
-
-    add(
-      "TEAM_GOALS_AWAY",
-      `Extérieur ${goals}+`,
-      percent(awayProbability),
-      goals
-    );
-  }
-
-  // Draw No Bet
-  const homeDnb =
-    p.homeWin / Math.max(0.0001, p.homeWin + p.awayWin) * 100;
-
-  const awayDnb =
-    p.awayWin / Math.max(0.0001, p.homeWin + p.awayWin) * 100;
-
-  add("DRAW_NO_BET", "Domicile", homeDnb);
-  add("DRAW_NO_BET", "Extérieur", awayDnb);
-
-  // Scores exacts calculés
-  for (const score of analysis.mostLikelyScores) {
-    add(
-      "EXACT_SCORE",
-      score.score,
-      score.probability
-    );
-  }
-
-  return predictions;
-}
-
-// =====================================
-// SAUVEGARDE AUTOMATIQUE
-// =====================================
-
-async function savePredictions(
+function makePredictionRows({
   fixtureId,
   home,
   away,
   kickoff,
-  predictions
-) {
-  const expires = new Date(
-    kickoff.getTime() + PREDICTION_RETENTION
-  ).toISOString();
+  analysis
+}) {
+  const lambdaHome = analysis.expectedGoals.home;
+  const lambdaAway = analysis.expectedGoals.away;
+  const rows = [];
 
-  const rows = predictions.map(item => {
-    const key = [
-      fixtureId,
-      item.market,
-      item.selection
-    ].join(":");
+  function add(market, selection, probability, line = null) {
+    const p = safeNumber(probability);
 
-    return {
-      prediction_key: key,
+    rows.push({
+      prediction_key: predictionKey(
+        fixtureId,
+        market,
+        selection,
+        line
+      ),
       fixture_id: String(fixtureId),
       home_team: home,
       away_team: away,
-      match_start: kickoff.toISOString(),
-      market: item.market,
-      selection: item.selection,
-      line: item.line,
-      probability: item.probability,
-      status: "pending",
-      expires_at: expires
-    };
-  });
+      match_start: kickoff,
+      market,
+      selection,
+      line,
+      probability: p === null ? null : Math.max(
+        0,
+        Math.min(100, p)
+      ),
+      status: p === null ? "unavailable" : "pending",
+      expires_at: new Date(
+        new Date(kickoff).getTime() + PREDICTION_RETENTION_MS
+      ).toISOString()
+    });
+  }
 
-  if (!rows.length) return 0;
+  // Calcul des probabilités exactes sur une grille de scores.
+  const grid = [];
+  let homeWin = 0;
+  let draw = 0;
+  let awayWin = 0;
+  let bttsYes = 0;
+  let totalOver = {
+    0.5: 0,
+    1.5: 0,
+    2.5: 0,
+    3.5: 0,
+    4.5: 0
+  };
 
-  await dbRequest("predictions?on_conflict=prediction_key", {
-    method: "POST",
-    headers: {
-      Prefer: "resolution=ignore-duplicates,return=minimal"
-    },
-    body: JSON.stringify(rows)
-  });
+  let homeGoals = Array(7).fill(0);
+  let awayGoals = Array(7).fill(0);
 
-  return rows.length;
+  for (let h = 0; h <= 12; h++) {
+    for (let a = 0; a <= 12; a++) {
+      const probability =
+        poisson(lambdaHome, h) *
+        poisson(lambdaAway, a);
+
+      grid.push({
+        home: h,
+        away: a,
+        probability
+      });
+
+      if (h > a) homeWin += probability;
+      else if (h === a) draw += probability;
+      else awayWin += probability;
+
+      if (h > 0 && a > 0) bttsYes += probability;
+
+      const total = h + a;
+
+      for (const line of Object.keys(totalOver)) {
+        if (total > Number(line)) {
+          totalOver[line] += probability;
+        }
+      }
+
+      if (h < 7) homeGoals[h] += probability;
+      if (a < 7) awayGoals[a] += probability;
+    }
+  }
+
+  // 1X2
+  add("1X2", "1", percent(homeWin));
+  add("1X2", "X", percent(draw));
+  add("1X2", "2", percent(awayWin));
+
+  // Double chance
+  add("DOUBLE_CHANCE", "1X", percent(homeWin + draw));
+  add("DOUBLE_CHANCE", "X2", percent(draw + awayWin));
+  add("DOUBLE_CHANCE", "12", percent(homeWin + awayWin));
+
+  // Draw no bet
+  const homeDnb = homeWin + draw > 0
+    ? homeWin / (homeWin + awayWin)
+    : 0;
+
+  const awayDnb = homeWin + awayWin > 0
+    ? awayWin / (homeWin + awayWin)
+    : 0;
+
+  add("DNB", "DOMICILE", percent(homeDnb));
+  add("DNB", "EXTERIEUR", percent(awayDnb));
+
+  // Buts équipe domicile et extérieur
+  for (let goals = 1; goals <= 6; goals++) {
+    const homeProbability = homeGoals
+      .slice(goals)
+      .reduce((sum, value) => sum + value, 0);
+
+    const awayProbability = awayGoals
+      .slice(goals)
+      .reduce((sum, value) => sum + value, 0);
+
+    add(
+      "TEAM_GOALS_HOME",
+      `PLUS_${goals}`,
+      percent(homeProbability),
+      goals - 0.5
+    );
+
+    add(
+      "TEAM_GOALS_AWAY",
+      `PLUS_${goals}`,
+      percent(awayProbability),
+      goals - 0.5
+    );
+  }
+
+  // Total buts
+  for (const line of Object.keys(totalOver)) {
+    const over = totalOver[line];
+
+    add(
+      "TOTAL_GOALS",
+      `OVER_${line}`,
+      percent(over),
+      Number(line)
+    );
+
+    add(
+      "TOTAL_GOALS",
+      `UNDER_${line}`,
+      percent(1 - over),
+      Number(line)
+    );
+  }
+
+  // Les deux équipes marquent
+  add("BTTS", "YES", percent(bttsYes));
+  add("BTTS", "NO", percent(1 - bttsYes));
+
+  // Scores exacts : les 5 probabilités les plus élevées
+  grid.sort((a, b) => b.probability - a.probability);
+
+  for (const score of grid.slice(0, 5)) {
+    add(
+      "EXACT_SCORE",
+      `${score.home}-${score.away}`,
+      percent(score.probability)
+    );
+  }
+
+  // Marchés non disponibles sans statistiques réelles
+  const unavailableMarkets = [
+    ["CORNERS_TOTAL", "STATISTIQUES_REQUISES"],
+    ["CORNERS_HOME", "STATISTIQUES_REQUISES"],
+    ["CORNERS_AWAY", "STATISTIQUES_REQUISES"],
+    ["YELLOW_CARDS", "STATISTIQUES_REQUISES"],
+    ["RED_CARDS", "STATISTIQUES_REQUISES"],
+    ["FOULS_TOTAL", "STATISTIQUES_REQUISES"],
+    ["FOULS_HOME", "STATISTIQUES_REQUISES"],
+    ["FOULS_AWAY", "STATISTIQUES_REQUISES"],
+    ["OFFSIDES_TOTAL", "STATISTIQUES_REQUISES"],
+    ["OFFSIDES_HOME", "STATISTIQUES_REQUISES"],
+    ["OFFSIDES_AWAY", "STATISTIQUES_REQUISES"],
+    ["HALF_TIME_RESULT", "DONNEES_MI_TEMPS_REQUISES"],
+    ["SECOND_HALF_RESULT", "DONNEES_MI_TEMPS_REQUISES"],
+    ["HALF_TIME_GOALS", "DONNEES_MI_TEMPS_REQUISES"],
+    ["SECOND_HALF_GOALS", "DONNEES_MI_TEMPS_REQUISES"]
+  ];
+
+  for (const [market, selection] of unavailableMarkets) {
+    add(market, selection, null);
+  }
+
+  return rows;
+}
+
+async function saveAutomaticPredictions(params) {
+  const rows = makePredictionRows(params);
+
+  if (!rows.length) return [];
+
+  await dbRequest(
+    "predictions?on_conflict=prediction_key",
+    {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=ignore-duplicates,return=representation"
+      },
+      body: JSON.stringify(rows)
+    }
+  );
+
+  return rows;
 }
 
 // =====================================
@@ -1343,10 +1519,17 @@ app.post("/api/analyze/manual", async (req, res) => {
       throw httpError("Les deux équipes sont obligatoires.", 400);
     }
 
-    const homeName = validateTeamName(home.name, "Équipe domicile");
-    const awayName = validateTeamName(away.name, "Équipe extérieure");
+    const homeName = validateTeamName(
+      home.name,
+      "Nom de l'équipe domicile"
+    );
 
-    if (normalizeName(homeName) === normalizeName(awayName)) {
+    const awayName = validateTeamName(
+      away.name,
+      "Nom de l'équipe extérieure"
+    );
+
+    if (homeName.toLowerCase() === awayName.toLowerCase()) {
       throw httpError("Les équipes doivent être différentes.", 400);
     }
 
@@ -1354,7 +1537,7 @@ app.post("/api/analyze/manual", async (req, res) => {
 
     res.json({
       app: "BET AGENT AI",
-      version: VERSION,
+      version: "4.5",
       status: "Analyse manuelle calculée",
       saved: false,
       teams: {
@@ -1362,24 +1545,25 @@ app.post("/api/analyze/manual", async (req, res) => {
         away: awayName
       },
       analysis,
-      predictions: generatePredictions(analysis),
       note:
-        "Analyse manuelle non liée à une rencontre confirmée. Aucun pronostic n'est enregistré dans l'historique."
+        "Analyse manuelle non associée à un match programmé. Aucun pronostic n'est enregistré dans l'historique."
     });
+
   } catch (error) {
     res.status(error.status || 400).json({
-      status: "error",
-      message: error.message
+      error: error.message
     });
   }
 });
 
 // =====================================
-// ANALYSE D'UN MATCH PROGRAMME
+// ANALYSE PROGRAMMEE + ENREGISTREMENT
 // =====================================
 
 app.post("/api/analyze", async (req, res) => {
   try {
+    await scheduledCleanup();
+
     const {
       home,
       away,
@@ -1389,121 +1573,107 @@ app.post("/api/analyze", async (req, res) => {
 
     if (!home || !away || !fixtureId || !matchStart) {
       throw httpError(
-        "Match, équipes, identifiant et date obligatoires.",
+        "Match, équipes et date de coup d'envoi obligatoires.",
         400
       );
     }
 
-    const homeName = validateTeamName(home.name, "Équipe domicile");
-    const awayName = validateTeamName(away.name, "Équipe extérieure");
-
-    const kickoff = validDate(matchStart);
+    const kickoff = new Date(matchStart);
     const now = new Date();
-
-    if (
-      !kickoff ||
-      kickoff < now ||
-      kickoff.getTime() > now.getTime() + 12 * 3600000
-    ) {
-      throw httpError(
-        "Le match doit commencer dans les 12 prochaines heures.",
-        400
-      );
-    }
-
-    const verification = await verifyAllProviders(
-      fixtureId,
-      homeName,
-      awayName,
-      kickoff
+    const end = new Date(
+      now.getTime() + 12 * 60 * 60 * 1000
     );
 
-    if (!verification.accepted) {
-      return res.status(422).json({
-        app: "BET AGENT AI",
-        version: VERSION,
-        status: "match_not_confirmed",
-        accepted: false,
-        verification,
-        message:
-          "Aucun fournisseur n'a confirmé suffisamment ce match. Aucun pronostic n'est validé."
-      });
+    if (
+      Number.isNaN(kickoff.getTime()) ||
+      kickoff < now ||
+      kickoff > end
+    ) {
+      throw httpError(
+        "Ce match n'est pas dans les 12 prochaines heures.",
+        400
+      );
+    }
+
+    const homeName = validateTeamName(
+      home.name,
+      "Nom de l'équipe domicile"
+    );
+
+    const awayName = validateTeamName(
+      away.name,
+      "Nom de l'équipe extérieure"
+    );
+
+    if (homeName.toLowerCase() === awayName.toLowerCase()) {
+      throw httpError("Les équipes doivent être différentes.", 400);
     }
 
     const analysis = analyzeMatch(home, away);
-    const predictions = generatePredictions(analysis);
-
     const created = new Date();
-    const expires = new Date(
+
+    const analysisExpires = new Date(
       created.getTime() + MAX_ANALYSIS_AGE
     );
 
+    const fixtureKey = String(fixtureId).startsWith("football-data:")
+      ? String(fixtureId)
+      : `football-data:${String(fixtureId)}`;
+
+    // Sauvegarde de l'analyse 24 heures
     await dbRequest("match_analyses", {
       method: "POST",
       headers: {
         Prefer: "return=minimal"
       },
       body: JSON.stringify({
-        fixture_id: String(fixtureId),
+        fixture_id: fixtureKey,
         home_team: homeName,
         away_team: awayName,
         match_start: kickoff.toISOString(),
         analysis,
         created_at: created.toISOString(),
-        expires_at: expires.toISOString()
+        expires_at: analysisExpires.toISOString()
       })
     });
 
-    const savedCount = await savePredictions(
-      fixtureId,
-      homeName,
-      awayName,
-      kickoff,
-      predictions
-    );
+    // Sauvegarde automatique de tous les marchés calculables
+    const predictions = await saveAutomaticPredictions({
+      fixtureId: fixtureKey,
+      home: homeName,
+      away: awayName,
+      kickoff: kickoff.toISOString(),
+      analysis
+    });
 
     res.json({
       app: "BET AGENT AI",
-      version: VERSION,
-      status: "Analyse confirmée et enregistrée",
-      accepted: true,
+      version: "4.5",
+      status: "Analyse et pronostics enregistrés",
       teams: {
         home: homeName,
         away: awayName
       },
-      verification,
+      fixtureId: fixtureKey,
       analysis,
-      predictions,
-      predictionsSaved: savedCount,
-      predictionsRetentionDays: 30,
-      analysisExpiresAt: expires.toISOString(),
-      warning:
-        "Les probabilités Poisson reposent sur les résultats fournis dans la requête. La confirmation du match ne valide pas automatiquement la qualité des statistiques utilisées."
+      predictions: {
+        generated: predictions.length,
+        saved: true,
+        available: predictions.filter(
+          item => item.status === "pending"
+        ).length,
+        unavailable: predictions.filter(
+          item => item.status === "unavailable"
+        ).length
+      },
+      expiresAt: analysisExpires.toISOString(),
+      predictionRetentionDays: PREDICTION_RETENTION_DAYS
     });
+
   } catch (error) {
+    console.error("Analyse:", error.message);
+
     res.status(error.status || 400).json({
-      status: "error",
-      message: error.message
-    });
-  }
-});
-
-// =====================================
-// HISTORIQUE DES ANALYSES
-// =====================================
-
-app.get("/api/analyses", async (req, res) => {
-  try {
-    const rows = await dbRequest(
-      `match_analyses?select=*&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc`
-    );
-
-    res.json({
-      results: rows.length,
-      analyses: rows
-    });
-  } catch (error) {
-    res.status(500).json({
       error: error.message
     });
   }
@@ -1517,26 +1687,34 @@ app.get("/api/predictions", async (req, res) => {
   try {
     const status = String(req.query.status || "").trim();
     const market = String(req.query.market || "").trim();
+    const limit = Math.min(
+      500,
+      Math.max(1, Number(req.query.limit) || 100)
+    );
 
-    let path =
-      "predictions?select=*&expires_at=gt." +
-      encodeURIComponent(new Date().toISOString()) +
-      "&order=match_start.asc";
+    let filters =
+      `select=*&order=match_start.desc&limit=${limit}`;
 
-    if (status) {
-      path += `&status=eq.${encodeURIComponent(status)}`;
+    if (
+      status &&
+      ["pending", "won", "lost", "void", "unavailable"].includes(status)
+    ) {
+      filters += `&status=eq.${encodeURIComponent(status)}`;
     }
 
     if (market) {
-      path += `&market=eq.${encodeURIComponent(market)}`;
+      filters += `&market=eq.${encodeURIComponent(market)}`;
     }
 
-    const rows = await dbRequest(path);
+    const rows = await dbRequest(`predictions?${filters}`);
 
     res.json({
+      app: "BET AGENT AI",
+      version: "4.5",
       results: rows.length,
       predictions: rows
     });
+
   } catch (error) {
     res.status(500).json({
       error: error.message
@@ -1551,44 +1729,66 @@ app.get("/api/predictions", async (req, res) => {
 app.get("/api/predictions/performance", async (req, res) => {
   try {
     const rows = await dbRequest(
-      `predictions?select=market,status,probability&expires_at=gt.${encodeURIComponent(new Date().toISOString())}`
+      "predictions?select=market,status,probability&limit=10000"
     );
 
-    const markets = {};
+    const summary = {
+      total: rows.length,
+      pending: 0,
+      won: 0,
+      lost: 0,
+      void: 0,
+      unavailable: 0,
+      settled: 0,
+      accuracy: null,
+      byMarket: {}
+    };
 
-    for (const item of rows) {
-      if (!markets[item.market]) {
-        markets[item.market] = {
+    for (const row of rows) {
+      if (summary[row.status] !== undefined) {
+        summary[row.status]++;
+      }
+
+      if (!summary.byMarket[row.market]) {
+        summary.byMarket[row.market] = {
           total: 0,
+          pending: 0,
           won: 0,
           lost: 0,
-          pending: 0,
           void: 0,
-          unavailable: 0
+          unavailable: 0,
+          accuracy: null
         };
       }
 
-      const group = markets[item.market];
+      const item = summary.byMarket[row.market];
+      item.total++;
 
-      group.total++;
-
-      if (group[item.status] !== undefined) {
-        group[item.status]++;
+      if (item[row.status] !== undefined) {
+        item[row.status]++;
       }
     }
 
-    for (const group of Object.values(markets)) {
-      const evaluated = group.won + group.lost;
+    summary.settled = summary.won + summary.lost;
 
-      group.accuracy = evaluated
-        ? percent(group.won / evaluated)
+    summary.accuracy = summary.settled
+      ? percent(summary.won / summary.settled)
+      : null;
+
+    for (const item of Object.values(summary.byMarket)) {
+      const settled = item.won + item.lost;
+
+      item.accuracy = settled
+        ? percent(item.won / settled)
         : null;
     }
 
     res.json({
-      totalPredictions: rows.length,
-      markets
+      app: "BET AGENT AI",
+      version: "4.5",
+      performance: summary
     });
+
   } catch (error) {
     res.status(500).json({
       error: error.message
@@ -1597,336 +1797,488 @@ app.get("/api/predictions/performance", async (req, res) => {
 });
 
 // =====================================
-// EVALUATION DES RESULTATS FOOTBALL-DATA
+// REGLEMENT DES PRONOSTICS
+// FOOTBALL-DATA UNIQUEMENT POUR SES IDS
 // =====================================
 
-async function evaluateFootballDataPredictions() {
-  const now = new Date().toISOString();
+function getFootballDataId(fixtureId) {
+  const value = String(fixtureId || "");
 
-  const rows = await dbRequest(
-    `predictions?select=*&status=eq.pending&match_start=lt.${encodeURIComponent(now)}`
-  );
-
-  const groups = new Map();
-
-  for (const row of rows) {
-    if (!String(row.fixture_id).startsWith("football-data:")) {
-      continue;
-    }
-
-    const id = String(row.fixture_id).replace("football-data:", "");
-
-    if (!groups.has(id)) groups.set(id, []);
-    groups.get(id).push(row);
-  }
-
-  const evaluated = [];
-
-  for (const [id, predictions] of groups.entries()) {
-    try {
-      const result = await footballDataFetch(`matches/${id}`);
-      const match = result.data;
-
-      if (match.status === "CANCELLED") {
-        for (const prediction of predictions) {
-          await updatePrediction(prediction.id, {
-            status: "void",
-            result_source: "Football-Data.org",
-            resolved_at: new Date().toISOString()
-          });
-        }
-
-        evaluated.push({
-          fixtureId: id,
-          status: "void"
-        });
-
-        continue;
-      }
-
-      if (match.status !== "FINISHED") continue;
-
-      const homeGoals = match.score?.fullTime?.home;
-      const awayGoals = match.score?.fullTime?.away;
-
-      if (
-        !Number.isFinite(homeGoals) ||
-        !Number.isFinite(awayGoals)
-      ) continue;
-
-      for (const prediction of predictions) {
-        const outcome = evaluateMarket(
-          prediction,
-          homeGoals,
-          awayGoals
-        );
-
-        if (!outcome) continue;
-
-        await updatePrediction(prediction.id, {
-          status: outcome.status,
-          actual_value: outcome.actualValue,
-          actual_selection: outcome.actualSelection,
-          result_source: "Football-Data.org",
-          resolved_at: new Date().toISOString()
-        });
-      }
-
-      evaluated.push({
-        fixtureId: id,
-        status: "evaluated"
-      });
-    } catch (error) {
-      console.error("Évaluation match", id, error.message);
-    }
-  }
-
-  return {
-    matchesProcessed: evaluated.length,
-    results: evaluated
-  };
-}
-
-function evaluateMarket(prediction, homeGoals, awayGoals) {
-  const total = homeGoals + awayGoals;
-  const selection = prediction.selection;
-  const market = prediction.market;
-
-  let won = false;
-
-  if (market === "1X2") {
-    won =
-      (selection === "Domicile" && homeGoals > awayGoals) ||
-      (selection === "Match nul" && homeGoals === awayGoals) ||
-      (selection === "Extérieur" && awayGoals > homeGoals);
-  } else if (market === "DOUBLE_CHANCE") {
-    won =
-      (selection === "1X" && homeGoals >= awayGoals) ||
-      (selection === "X2" && awayGoals >= homeGoals) ||
-      (selection === "12" && homeGoals !== awayGoals);
-  } else if (market === "TOTAL_GOALS") {
-    const line = Number(prediction.line);
-
-    if (selection.startsWith("Over")) {
-      won = total > line;
-    } else {
-      won = total < line;
-    }
-  } else if (market === "BTTS") {
-    const yes = homeGoals > 0 && awayGoals > 0;
-    won = selection === "Oui" ? yes : !yes;
-  } else if (market === "TEAM_GOALS_HOME") {
-    const line = Number(prediction.line);
-    won = homeGoals >= line;
-  } else if (market === "TEAM_GOALS_AWAY") {
-    const line = Number(prediction.line);
-    won = awayGoals >= line;
-  } else if (market === "EXACT_SCORE") {
-    won = selection === `${homeGoals}-${awayGoals}`;
-  } else if (market === "DRAW_NO_BET") {
-    if (homeGoals === awayGoals) {
-      return {
-        status: "void",
-        actualValue: total,
-        actualSelection: "Match nul"
-      };
-    }
-
-    won =
-      (selection === "Domicile" && homeGoals > awayGoals) ||
-      (selection === "Extérieur" && awayGoals > homeGoals);
-  } else {
+  if (!value.startsWith("football-data:")) {
     return null;
   }
 
+  const id = value.slice("football-data:".length);
+
+  return /^\d+$/.test(id) ? id : null;
+}
+
+function evaluatePrediction(row, homeGoals, awayGoals) {
+  const total = homeGoals + awayGoals;
+  const selection = row.selection;
+  const market = row.market;
+  const line = safeNumber(row.line);
+
+  if (market === "1X2") {
+    if (selection === "1") return homeGoals > awayGoals ? "won" : "lost";
+    if (selection === "X") return homeGoals === awayGoals ? "won" : "lost";
+    if (selection === "2") return homeGoals < awayGoals ? "won" : "lost";
+  }
+
+  if (market === "DOUBLE_CHANCE") {
+    if (selection === "1X") return homeGoals >= awayGoals ? "won" : "lost";
+    if (selection === "X2") return awayGoals >= homeGoals ? "won" : "lost";
+    if (selection === "12") return homeGoals !== awayGoals ? "won" : "lost";
+  }
+
+  if (market === "DNB") {
+    if (homeGoals === awayGoals) return "void";
+
+    if (selection === "DOMICILE") {
+      return homeGoals > awayGoals ? "won" : "lost";
+    }
+
+    if (selection === "EXTERIEUR") {
+      return awayGoals > homeGoals ? "won" : "lost";
+    }
+  }
+
+  if (market === "TEAM_GOALS_HOME") {
+    const required = Number(selection.replace("PLUS_", ""));
+    return homeGoals >= required ? "won" : "lost";
+  }
+
+  if (market === "TEAM_GOALS_AWAY") {
+    const required = Number(selection.replace("PLUS_", ""));
+    return awayGoals >= required ? "won" : "lost";
+  }
+
+  if (market === "TOTAL_GOALS" && line !== null) {
+    if (selection.startsWith("OVER_")) {
+      return total > line ? "won" : "lost";
+    }
+
+    if (selection.startsWith("UNDER_")) {
+      return total < line ? "won" : "lost";
+    }
+  }
+
+  if (market === "BTTS") {
+    const both = homeGoals > 0 && awayGoals > 0;
+
+    if (selection === "YES") return both ? "won" : "lost";
+    if (selection === "NO") return both ? "lost" : "won";
+  }
+
+  if (market === "EXACT_SCORE") {
+    return selection === `${homeGoals}-${awayGoals}`
+      ? "won"
+      : "lost";
+  }
+
+  // Marchés statistiques non évaluables sans statistiques fiables.
+  return "unavailable";
+}
+
+async function settleFixture(fixtureId) {
+  const rows = await dbRequest(
+    `predictions?fixture_id=eq.${encodeURIComponent(fixtureId)}&status=eq.pending&select=*`
+  );
+
+  if (!rows.length) {
+    return {
+      fixtureId,
+      evaluated: 0,
+      message: "Aucun pronostic en attente."
+    };
+  }
+
+  const footballId = getFootballDataId(fixtureId);
+
+  if (!footballId) {
+    return {
+      fixtureId,
+      evaluated: 0,
+      message: "Identifiant non compatible avec Football-Data."
+    };
+  }
+
+  const result = await footballDataFetch(
+    `matches/${footballId}`,
+    0
+  );
+
+  const match = result.data;
+
+  if (match.status === "CANCELLED" || match.status === "POSTPONED") {
+    await dbRequest(
+      `predictions?fixture_id=eq.${encodeURIComponent(fixtureId)}&status=eq.pending`,
+      {
+        method: "PATCH",
+        headers: {
+          Prefer: "return=minimal"
+        },
+        body: JSON.stringify({
+          status: "void",
+          result_source: "Football-Data.org",
+          resolved_at: new Date().toISOString()
+        })
+      }
+    );
+
+    return {
+      fixtureId,
+      evaluated: rows.length,
+      status: "void"
+    };
+  }
+
+  if (match.status !== "FINISHED") {
+    return {
+      fixtureId,
+      evaluated: 0,
+      status: match.status,
+      message: "Match pas encore terminé."
+    };
+  }
+
+  const homeGoals = safeNumber(
+    match.score?.fullTime?.home
+  );
+
+  const awayGoals = safeNumber(
+    match.score?.fullTime?.away
+  );
+
+  if (homeGoals === null || awayGoals === null) {
+    return {
+      fixtureId,
+      evaluated: 0,
+      message: "Score final non disponible."
+    };
+  }
+
+  let evaluated = 0;
+
+  for (const row of rows) {
+    const status = evaluatePrediction(
+      row,
+      homeGoals,
+      awayGoals
+    );
+
+    await dbRequest(
+      `predictions?prediction_key=eq.${encodeURIComponent(row.prediction_key)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Prefer: "return=minimal"
+        },
+        body: JSON.stringify({
+          status,
+          actual_value: homeGoals + awayGoals,
+          actual_selection: `${homeGoals}-${awayGoals}`,
+          result_source: "Football-Data.org",
+          resolved_at: new Date().toISOString()
+        })
+      }
+    );
+
+    evaluated++;
+  }
+
   return {
-    status: won ? "won" : "lost",
-    actualValue: total,
-    actualSelection: `${homeGoals}-${awayGoals}`
+    fixtureId,
+    evaluated,
+    score: `${homeGoals}-${awayGoals}`,
+    status: "FINISHED"
   };
 }
 
-async function updatePrediction(id, values) {
-  await dbRequest(
-    `predictions?id=eq.${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      headers: {
-        Prefer: "return=minimal"
-      },
-      body: JSON.stringify(values)
-    }
-  );
-}
-
 // =====================================
-// ROUTE EVALUATION
+// EVALUATION AUTOMATIQUE DES MATCHS FINIS
 // =====================================
 
-app.post("/api/predictions/evaluate", async (req, res) => {
+app.post("/api/predictions/settle", async (req, res) => {
   try {
-    const result = await evaluateFootballDataPredictions();
+    const rows = await dbRequest(
+      "predictions?select=fixture_id&status=eq.pending&limit=1000"
+    );
+
+    const fixtureIds = [
+      ...new Set(rows.map(row => row.fixture_id))
+    ];
+
+    const results = [];
+
+    for (const fixtureId of fixtureIds) {
+      try {
+        results.push(await settleFixture(fixtureId));
+      } catch (error) {
+        results.push({
+          fixtureId,
+          error: error.message
+        });
+      }
+    }
 
     res.json({
-      status: "completed",
-      ...result
+      app: "BET AGENT AI",
+      version: "4.5",
+      fixturesChecked: fixtureIds.length,
+      results
     });
+
   } catch (error) {
     res.status(500).json({
-      status: "error",
-      message: error.message
+      error: error.message
     });
   }
 });
 
 // =====================================
 // RAPPORT QUOTIDIEN GROQ
+// DATE ALGERIE UTC+1
 // =====================================
 
-function getAlgeriaDate() {
+function algeriaDate(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Algiers",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(new Date());
+  }).format(date);
 }
 
-async function generateDailyReport() {
-  if (!GROQ_API_KEY) {
-    throw httpError("GROQ_API_KEY non configurée.", 503);
-  }
+function yesterdayAlgeria() {
+  const now = new Date();
+  const today = algeriaDate(now);
 
-  const evaluation = await evaluateFootballDataPredictions();
-  const today = getAlgeriaDate();
+  const [year, month, day] = today.split("-").map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
 
-  const rows = await dbRequest(
-    `predictions?select=market,status,probability,home_team,away_team,match_start&match_start=gte.${encodeURIComponent(today + "T00:00:00+01:00")}&match_start=lt.${encodeURIComponent(today + "T23:59:59+01:00")}`
+  utc.setUTCDate(utc.getUTCDate() - 1);
+
+  return [
+    utc.getUTCFullYear(),
+    String(utc.getUTCMonth() + 1).padStart(2, "0"),
+    String(utc.getUTCDate()).padStart(2, "0")
+  ].join("-");
+}
+
+async function generateDailyReport(reportDate) {
+  const existing = await dbRequest(
+    `daily_reports?report_date=eq.${encodeURIComponent(reportDate)}&select=report&limit=1`
   );
 
-  const summary = {};
+  if (existing.length) {
+    return {
+      alreadyGenerated: true,
+      report: existing[0].report
+    };
+  }
+
+  const start = new Date(
+    `${reportDate}T00:00:00+01:00`
+  ).toISOString();
+
+  const end = new Date(
+    new Date(start).getTime() + 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const rows = await dbRequest(
+    `predictions?select=*&match_start=gte.${encodeURIComponent(start)}&match_start=lt.${encodeURIComponent(end)}&limit=10000`
+  );
+
+  const aggregate = {
+    date: reportDate,
+    total: rows.length,
+    won: 0,
+    lost: 0,
+    pending: 0,
+    void: 0,
+    unavailable: 0,
+    accuracy: null,
+    markets: {}
+  };
 
   for (const row of rows) {
-    if (!summary[row.market]) {
-      summary[row.market] = {
+    if (aggregate[row.status] !== undefined) {
+      aggregate[row.status]++;
+    }
+
+    if (!aggregate.markets[row.market]) {
+      aggregate.markets[row.market] = {
+        total: 0,
         won: 0,
         lost: 0,
         pending: 0,
         void: 0,
-        unavailable: 0
+        unavailable: 0,
+        accuracy: null
       };
     }
 
-    if (summary[row.market][row.status] !== undefined) {
-      summary[row.market][row.status]++;
+    const market = aggregate.markets[row.market];
+    market.total++;
+
+    if (market[row.status] !== undefined) {
+      market[row.status]++;
     }
   }
 
-  const response = await fetch(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-oss-120b",
-        messages: [
+  const settled = aggregate.won + aggregate.lost;
+
+  aggregate.accuracy = settled
+    ? percent(aggregate.won / settled)
+    : null;
+
+  for (const market of Object.values(aggregate.markets)) {
+    const count = market.won + market.lost;
+
+    market.accuracy = count
+      ? percent(market.won / count)
+      : null;
+  }
+
+  let aiReport = null;
+  let groqError = null;
+
+  if (GROQ_API_KEY) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        30000
+      );
+
+      let response;
+
+      try {
+        response = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
           {
-            role: "system",
-            content:
-              "Tu es un analyste de performances de pronostics sportifs. Analyse uniquement les données fournies. N'invente aucune statistique. Propose des améliorations prudentes, sans prétendre entraîner le modèle."
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              date: today,
-              evaluation,
-              marketStatistics: summary,
-              totalPredictions: rows.length
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model: GROQ_MODEL,
+              temperature: 0.2,
+              response_format: {
+                type: "json_object"
+              },
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "Tu es un analyste statistique de football. " +
+                    "Analyse uniquement les données fournies. " +
+                    "Ne prétends jamais qu'une tendance est certaine. " +
+                    "Ne recommande pas de miser de l'argent. " +
+                    "Retourne un JSON avec les clés: summary, strengths, weaknesses, marketAnalysis, recommendations, limitations."
+                },
+                {
+                  role: "user",
+                  content:
+                    "Rapport des pronostics du " +
+                    reportDate +
+                    ". Analyse les performances par marché, " +
+                    "les réussites, les échecs, les limites et les pistes d'amélioration. " +
+                    "Données: " +
+                    JSON.stringify(aggregate)
+                }
+              ]
             })
           }
-        ],
-        response_format: {
-          type: "json_object"
-        },
-        temperature: 0.2
-      })
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `Groq HTTP ${response.status}: ${await response.text()}`
+        );
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        throw new Error("Réponse Groq vide.");
+      }
+
+      aiReport = JSON.parse(content);
+
+    } catch (error) {
+      groqError = error.message;
     }
-  );
-
-  if (!response.ok) {
-    throw httpError(`Erreur Groq HTTP ${response.status}`, 502);
+  } else {
+    groqError = "GROQ_API_KEY non configurée.";
   }
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error("Réponse Groq vide.");
-  }
-
-  let report;
-
-  try {
-    report = JSON.parse(content);
-  } catch {
-    report = {
-      analysis: content
-    };
-  }
-
-  const finalReport = {
-    date: today,
+  const report = {
+    date: reportDate,
     generatedAt: new Date().toISOString(),
-    totalPredictions: rows.length,
-    marketStatistics: summary,
-    evaluation,
-    groqAnalysis: report
+    statistics: aggregate,
+    ai: aiReport,
+    aiError: groqError,
+    model: GROQ_MODEL
   };
 
-  await dbRequest("daily_reports?on_conflict=report_date", {
+  await dbRequest("daily_reports", {
     method: "POST",
     headers: {
-      Prefer: "resolution=merge-duplicates,return=minimal"
+      Prefer: "resolution=ignore-duplicates,return=representation"
     },
     body: JSON.stringify({
-      report_date: today,
-      report: finalReport,
+      report_date: reportDate,
+      report,
       created_at: new Date().toISOString()
     })
   });
 
-  return finalReport;
+  return {
+    alreadyGenerated: false,
+    report
+  };
 }
 
 // =====================================
-// SECURITE CRON
+// ROUTE PROTEGEE DU RAPPORT QUOTIDIEN
 // =====================================
-
-function verifyCron(req) {
-  if (!CRON_SECRET) {
-    throw httpError("CRON_SECRET non configuré.", 503);
-  }
-
-  const authorization = req.headers.authorization || "";
-
-  if (authorization !== `Bearer ${CRON_SECRET}`) {
-    throw httpError("Accès non autorisé.", 401);
-  }
-}
 
 app.post("/api/jobs/daily-report", async (req, res) => {
   try {
-    verifyCron(req);
+    if (!CRON_SECRET) {
+      throw httpError(
+        "CRON_SECRET n'est pas configuré.",
+        503
+      );
+    }
 
-    const report = await generateDailyReport();
+    const authorization = req.headers.authorization || "";
+    const expected = `Bearer ${CRON_SECRET}`;
+
+    if (authorization !== expected) {
+      throw httpError("Accès refusé.", 401);
+    }
+
+    const reportDate = yesterdayAlgeria();
+    const result = await generateDailyReport(reportDate);
 
     res.json({
+      app: "BET AGENT AI",
+      version: "4.5",
       status: "completed",
-      report
+      reportDate,
+      alreadyGenerated: result.alreadyGenerated,
+      report: result.report
     });
+
   } catch (error) {
     res.status(error.status || 500).json({
       status: "error",
@@ -1936,18 +2288,27 @@ app.post("/api/jobs/daily-report", async (req, res) => {
 });
 
 // =====================================
-// RAPPORTS QUOTIDIENS
+// CONSULTER LES RAPPORTS
 // =====================================
 
-app.get("/api/daily-reports/latest", async (req, res) => {
+app.get("/api/reports", async (req, res) => {
   try {
+    const limit = Math.min(
+      30,
+      Math.max(1, Number(req.query.limit) || 10)
+    );
+
     const rows = await dbRequest(
-      "daily_reports?select=*&order=report_date.desc&limit=1"
+      `daily_reports?select=*&order=report_date.desc&limit=${limit}`
     );
 
     res.json({
-      report: rows[0] || null
+      app: "BET AGENT AI",
+      version: "4.5",
+      results: rows.length,
+      reports: rows
     });
+
   } catch (error) {
     res.status(500).json({
       error: error.message
@@ -1955,98 +2316,41 @@ app.get("/api/daily-reports/latest", async (req, res) => {
   }
 });
 
-app.get("/api/daily-reports/:date", async (req, res) => {
-  try {
-    const date = String(req.params.date || "");
+// =====================================
+// HISTORIQUE DES ANALYSES
+// =====================================
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw httpError("Date invalide.", 400);
-    }
+app.get("/api/analyses", async (req, res) => {
+  try {
+    await scheduledCleanup();
 
     const rows = await dbRequest(
-      `daily_reports?report_date=eq.${encodeURIComponent(date)}&select=*&limit=1`
+      `match_analyses?select=*&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc`
     );
 
     res.json({
-      report: rows[0] || null
+      results: rows.length,
+      analyses: rows
     });
+
   } catch (error) {
-    res.status(error.status || 500).json({
+    res.status(500).json({
       error: error.message
     });
   }
 });
 
 // =====================================
-// NETTOYAGE DES DONNEES EXPIREES
-// =====================================
-
-async function cleanupExpired() {
-  const now = new Date().toISOString();
-
-  const predictionCutoff = new Date(
-    Date.now() - PREDICTION_RETENTION
-  ).toISOString();
-
-  const reportCutoff = getAlgeriaDate();
-
-  await Promise.all([
-    dbRequest(
-      `match_analyses?expires_at=lt.${encodeURIComponent(now)}`,
-      { method: "DELETE" }
-    ),
-
-    dbRequest(
-      `api_cache?expires_at=lt.${encodeURIComponent(now)}`,
-      { method: "DELETE" }
-    ),
-
-    dbRequest(
-      `api_requests?requested_at=lt.${encodeURIComponent(
-        new Date(Date.now() - 86400000).toISOString()
-      )}`,
-      { method: "DELETE" }
-    ),
-
-    dbRequest(
-      `predictions?expires_at=lt.${encodeURIComponent(predictionCutoff)}`,
-      { method: "DELETE" }
-    ),
-
-    dbRequest(
-      `daily_reports?report_date=lt.${encodeURIComponent(
-        new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
-      )}`,
-      { method: "DELETE" }
-    )
-  ]);
-}
-
-let cleanupRunning = false;
-
-async function scheduledCleanup() {
-  if (cleanupRunning) return;
-
-  cleanupRunning = true;
-
-  try {
-    await cleanupExpired();
-  } catch (error) {
-    console.error("Nettoyage:", error.message);
-  } finally {
-    cleanupRunning = false;
-  }
-}
-
-setInterval(scheduledCleanup, 10 * 60 * 1000);
-
-// =====================================
-// COMPTEUR
+// COMPTEUR ET ETAT DU SERVEUR
 // =====================================
 
 app.get("/api/usage", async (req, res) => {
   try {
+    await scheduledCleanup();
+
     res.json({
+      app: "BET AGENT AI",
+      version: "4.5",
       quotas: await getUsage(),
       research: {
         usedToday: researchCount,
@@ -2059,6 +2363,7 @@ app.get("/api/usage", async (req, res) => {
       protection: "active",
       database: "connected"
     });
+
   } catch (error) {
     res.status(503).json({
       error: error.message
@@ -2066,38 +2371,50 @@ app.get("/api/usage", async (req, res) => {
   }
 });
 
-// =====================================
-// PAGE PRINCIPALE
-// =====================================
-
 app.get("/", (req, res) => {
   res.json({
     app: "BET AGENT AI",
-    version: VERSION,
     status: "Serveur connecté",
+    version: "4.5",
     database: "Supabase",
     providers: [
       "Football-Data.org",
       "Football Charts",
       "TheSportsDB",
       "Google Actualités RSS",
-      "Groq"
+      "Groq AI"
     ],
     features: [
       "Catalogue multi-fournisseurs",
-      "Catalogue des équipes",
-      "Recherche Google Actualités",
-      "Vérification multi-fournisseurs",
-      "Une source fiable suffit pour confirmer le match",
-      "Analyse Poisson",
-      "Pronostics automatiques",
-      "Sauvegarde automatique des marchés",
-      "Historique des pronostics",
-      "Évaluation des résultats disponibles",
-      "Statistiques de performance",
+      "Recherche Internet autonome",
+      "Détection indicative des absences",
+      "Analyse Poisson domicile/extérieur",
+      "Pronostics automatiques 1X2",
+      "Double chance et DNB",
+      "Buts par équipe",
+      "Total de buts",
+      "BTTS",
+      "Scores exacts",
+      "Enregistrement automatique Supabase",
+      "Suivi des résultats",
+      "Performance par marché",
       "Rapport quotidien Groq",
-      "Quotas API persistants",
-      "Cache Supabase"
+      "Rétention des pronostics 30 jours",
+      "Protection par quotas API"
+    ],
+    endpoints: [
+      "/api/fixtures",
+      "/api/catalog",
+      "/api/catalog/teams",
+      "/api/research",
+      "/api/analyze",
+      "/api/analyze/manual",
+      "/api/analyses",
+      "/api/predictions",
+      "/api/predictions/performance",
+      "/api/predictions/settle",
+      "/api/reports",
+      "/api/usage"
     ]
   });
 });
@@ -2108,6 +2425,6 @@ app.get("/", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(
-    `BET AGENT AI version ${VERSION} lancée sur le port ${PORT}`
+    `BET AGENT AI version 4.5 lancée sur le port ${PORT}`
   );
 });
