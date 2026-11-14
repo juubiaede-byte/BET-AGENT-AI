@@ -1,10 +1,11 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#07110f">
-<title>BET AGENT AI</title>
+<title>BET AGENT AI 4.4</title>
 
 <style>
 *{box-sizing:border-box}
@@ -40,7 +41,6 @@ textarea{min-height:75px;resize:vertical}
 .loading{text-align:center;padding:25px;color:#35e39a}
 .match-league{color:#35e39a;font-size:12px;margin-bottom:12px}
 .match-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center;font-weight:bold}
-.match-teams span:last-child{text-align:center}
 .score{font-size:18px;color:#35e39a;white-space:nowrap}
 .match-info{color:#91a69d;font-size:11px;margin-top:12px;text-align:center}
 .match button{width:100%;margin-top:14px}
@@ -56,6 +56,10 @@ textarea{min-height:75px;resize:vertical}
 .small{font-size:11px;color:#91a69d}
 hr{border:0;border-top:1px solid #20362e;margin:16px 0}
 a{overflow-wrap:anywhere}
+.section-title{color:#35e39a;font-size:13px;margin-top:20px}
+.two-columns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two-columns button{width:100%}
+@media(max-width:420px){.two-columns{grid-template-columns:1fr}}
 </style>
 </head>
 
@@ -63,7 +67,7 @@ a{overflow-wrap:anywhere}
 
 <header>
 <h1>⚽ BET AGENT AI</h1>
-<p>FOOTBALL INTELLIGENCE • ANALYSE & PRÉDICTIONS</p>
+<p>FOOTBALL INTELLIGENCE • ANALYSE & PRÉDICTIONS • VERSION 4.4</p>
 </header>
 
 <main>
@@ -72,11 +76,11 @@ a{overflow-wrap:anywhere}
 <section id="home" class="active">
 
 <div class="hero">
-<p class="green">ANALYSE FOOTBALL</p>
+<p class="green">ANALYSE FOOTBALL 4.4</p>
 <h2>Les données avant les décisions.</h2>
 <p>
-Statistiques, probabilités Poisson et recherche d'actualités
-pour approfondir l'analyse des rencontres.
+Statistiques, probabilités Poisson, catalogue des championnats,
+sélection des équipes et recherche approfondie d'actualités.
 </p>
 <button onclick="show('matches')">Voir les matchs</button>
 </div>
@@ -103,9 +107,9 @@ pour approfondir l'analyse des rencontres.
 
 <div class="card">
 <p class="notice">
-Les probabilités Poisson sont des estimations statistiques.
-Les actualités trouvées doivent être vérifiées avant toute décision.
-Aucun résultat n'est garanti.
+Les probabilités sont des estimations statistiques.
+Les informations sur les blessures et suspensions doivent être
+vérifiées auprès de sources fiables. Aucun résultat n'est garanti.
 </p>
 </div>
 
@@ -119,8 +123,7 @@ Aucun résultat n'est garanti.
 <div class="card">
 <p class="label">RENCONTRES À VENIR</p>
 <p class="notice">
-Les matchs affichés correspondent aux 12 prochaines heures,
-selon les données disponibles sur Football-Data.org.
+Matchs récupérés depuis Football-Data.org dans les 12 prochaines heures.
 </p>
 <button id="refresh-button" onclick="loadMatches()">Actualiser les matchs</button>
 </div>
@@ -134,31 +137,96 @@ selon les données disponibles sur Football-Data.org.
 <!-- ANALYSE -->
 <section id="analysis">
 
-<h2>✦ Analyse Poisson</h2>
+<h2>✦ Analyse Poisson 4.4</h2>
 
 <div class="card">
-<h3>1. Choisir une rencontre</h3>
-<p class="notice">Sélectionne d'abord un match dans l'onglet Matchs.</p>
+<h3>1. Choisir le type d'analyse</h3>
+<select id="analysis-mode" onchange="changeAnalysisMode()">
+<option value="manual">Analyse manuelle de deux équipes</option>
+<option value="fixture">Analyse d'un match programmé</option>
+</select>
+<p class="notice" id="mode-description">
+Tu peux analyser deux équipes même si leur match n'apparaît pas dans la liste des rencontres.
+</p>
+</div>
+
+<div class="card">
+<h3>2. Choisir les équipes</h3>
+<p class="notice">
+Tu peux sélectionner les équipes depuis le catalogue ou saisir leurs noms manuellement.
+</p>
+
+<label class="small">Fournisseur</label>
+<select id="catalog-provider" onchange="catalogProviderChanged()">
+<option value="">Chargement du catalogue...</option>
+</select>
+
+<label class="small">Championnat / compétition</label>
+<select id="catalog-competition" onchange="loadCatalogTeams()">
+<option value="">Choisir une compétition</option>
+</select>
+
+<label class="small">Équipe à domicile</label>
+<select id="catalog-home-team" onchange="syncTeamInputs()">
+<option value="">Sélectionner une équipe</option>
+</select>
+
+<label class="small">Équipe à l'extérieur</label>
+<select id="catalog-away-team" onchange="syncTeamInputs()">
+<option value="">Sélectionner une équipe</option>
+</select>
+
+<p class="small">Tu peux aussi écrire directement les noms ci-dessous.</p>
+
+<div class="field">
+<label for="manual-home-name">Nom de l'équipe à domicile</label>
+<input id="manual-home-name" placeholder="Exemple : Manchester City">
+</div>
+
+<div class="field">
+<label for="manual-away-name">Nom de l'équipe à l'extérieur</label>
+<input id="manual-away-name" placeholder="Exemple : Liverpool">
+</div>
+
+<p id="catalog-message" class="notice"></p>
+</div>
+
+<div class="card" id="fixture-selection-card" style="display:none">
+<h3>Match programmé sélectionné</h3>
 <div id="selected-match" class="notice">Aucun match sélectionné.</div>
 </div>
 
 <div class="card">
-<h3>2. Forme récente des équipes</h3>
+<h3>3. Forme récente des équipes</h3>
+
 <p class="notice">
-Entre les résultats des 3 à 10 derniers matchs de chaque équipe.
+Entre les 3 à 10 derniers résultats pertinents.
 Format : buts marqués-buts encaissés.
 Exemple : 2-1, 1-0, 0-2.
-Sépare les résultats par des virgules.
 </p>
 
 <div class="field">
-<label for="home-form">Résultats de l'équipe à domicile</label>
+<label for="home-form">Équipe à domicile : derniers matchs à domicile</label>
 <textarea id="home-form" placeholder="Exemple : 2-1, 1-0, 0-2"></textarea>
 </div>
 
 <div class="field">
-<label for="away-form">Résultats de l'équipe à l'extérieur</label>
+<label for="away-form">Équipe à l'extérieur : derniers matchs à l'extérieur</label>
 <textarea id="away-form" placeholder="Exemple : 1-1, 2-0, 0-1"></textarea>
+</div>
+
+<hr>
+
+<p class="section-title">FORMES COMPLÉMENTAIRES (FACULTATIVES)</p>
+
+<div class="field">
+<label for="home-away-form">Équipe à domicile : derniers matchs à l'extérieur</label>
+<textarea id="home-away-form" placeholder="Exemple : 1-1, 0-2, 2-1"></textarea>
+</div>
+
+<div class="field">
+<label for="away-home-form">Équipe à l'extérieur : derniers matchs à domicile</label>
+<textarea id="away-home-form" placeholder="Exemple : 2-0, 1-1, 3-1"></textarea>
 </div>
 
 <button id="analyze-button" onclick="runAnalysis()">Calculer les probabilités</button>
@@ -167,18 +235,25 @@ Sépare les résultats par des virgules.
 
 <div id="analysis-result"></div>
 
+<!-- RECHERCHE -->
 <div class="card">
-<h3>3. Recherche Internet</h3>
+<h3>4. Recherche Internet approfondie</h3>
+
 <p class="notice">
-Recherche des actualités, blessures possibles, suspensions
-et compositions probables avec Google Actualités RSS.
+Cette recherche fonctionne indépendamment des matchs programmés.
+Elle utilise les noms des deux équipes renseignés plus haut.
 </p>
-<button id="research-button" class="secondary" onclick="runResearch()">Rechercher des informations</button>
+
+<button id="research-button" class="secondary" onclick="runResearch()">
+Rechercher des informations
+</button>
+
 <div id="research-result"></div>
 </div>
 
+<!-- HISTORIQUE -->
 <div class="card">
-<h3>Historique des analyses</h3>
+<h3>5. Historique des analyses</h3>
 <button class="secondary" onclick="loadHistory()">Actualiser l'historique</button>
 <div id="history-list" class="notice">Appuie sur Actualiser pour consulter les analyses enregistrées.</div>
 </div>
@@ -191,10 +266,17 @@ et compositions probables avec Google Actualités RSS.
 <h2>⚙ Paramètres et fournisseurs</h2>
 
 <div class="card">
-<h3>État des connexions</h3>
+<h3>Catalogue des compétitions</h3>
 <p class="notice">
-Vérifie les fournisseurs de données directement depuis ton serveur.
+Récupération des compétitions disponibles auprès des fournisseurs connectés.
 </p>
+<button class="secondary" onclick="loadCatalog()">Actualiser le catalogue</button>
+<div id="catalog-status" class="notice">Catalogue non chargé.</div>
+</div>
+
+<div class="card">
+<h3>État des connexions</h3>
+<p class="notice">Vérifie les fournisseurs de données depuis ton serveur.</p>
 <button id="providers-button" onclick="testProviders()">Tester les fournisseurs</button>
 <div id="providers-list">
 <p class="notice">Appuie sur le bouton pour vérifier les connexions.</p>
@@ -211,7 +293,7 @@ Vérifie les fournisseurs de données directement depuis ton serveur.
 <h3>Protection</h3>
 <p>Serveur : <span class="green">BET AGENT AI</span></p>
 <p>Base de données : <span class="green">Supabase</span></p>
-<p>Version serveur : <span class="green">4.3</span></p>
+<p>Version attendue : <span class="green">4.4</span></p>
 <p class="notice">
 Les clés API restent protégées sur Render.
 Elles ne sont pas exposées dans cette page.
@@ -219,13 +301,17 @@ Elles ne sont pas exposées dans cette page.
 </div>
 
 <div class="card">
-<h3>Fonctionnalités connectées</h3>
+<h3>Fonctionnalités</h3>
 <p class="notice">
 • Football-Data.org<br>
 • Football Charts<br>
 • TheSportsDB<br>
-• Google Actualités RSS<br>
+• Catalogue des compétitions<br>
+• Sélection des équipes disponible selon fournisseur<br>
+• Recherche Google Actualités RSS<br>
 • Analyse statistique Poisson<br>
+• Analyse manuelle sans match programmé<br>
+• Analyse domicile / extérieur<br>
 • Historique Supabase<br>
 • Cache et protection des quotas
 </p>
@@ -248,6 +334,9 @@ const API_URL = "https://bet-agent-ai.onrender.com";
 let fixtures = [];
 let selectedFixture = null;
 let lastAnalysis = null;
+let catalogData = null;
+let catalogCompetitions = [];
+let catalogTeams = [];
 
 async function api(path, options = {}) {
   const response = await fetch(API_URL + path, {
@@ -283,12 +372,15 @@ function show(id) {
 
   if (id === "matches" && fixtures.length === 0) loadMatches();
   if (id === "settings") loadUsage();
-  if (id === "analysis") loadHistory();
+  if (id === "analysis") {
+    loadHistory();
+    if (!catalogData) loadCatalog();
+  }
 }
 
 function addText(parent, tag, text, className = "") {
   const element = document.createElement(tag);
-  element.textContent = text;
+  element.textContent = text == null ? "" : String(text);
   if (className) element.className = className;
   parent.appendChild(element);
   return element;
@@ -310,20 +402,32 @@ function formatDate(value) {
   });
 }
 
-function formatTime(value) {
-  if (!value) return "Horaire indisponible";
+function getTeamNames() {
+  const home =
+    document.getElementById("manual-home-name").value.trim();
 
-  const date = new Date(value);
+  const away =
+    document.getElementById("manual-away-name").value.trim();
 
-  if (Number.isNaN(date.getTime())) return "Horaire indisponible";
-
-  return date.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return { home, away };
 }
 
+function syncTeamInputs() {
+  const home = document.getElementById("catalog-home-team");
+  const away = document.getElementById("catalog-away-team");
+
+  if (home.value) {
+    document.getElementById("manual-home-name").value = home.value;
+  }
+
+  if (away.value) {
+    document.getElementById("manual-away-name").value = away.value;
+  }
+}
+
+// ======================================
 // MATCHS
+// ======================================
 
 async function loadMatches() {
   const container = document.getElementById("matches-list");
@@ -371,8 +475,6 @@ async function loadMatches() {
 
         const home = match.homeTeam?.name || "Équipe domicile";
         const away = match.awayTeam?.name || "Équipe extérieure";
-        const kickoff = match.utcDate;
-        const status = match.status || "SCHEDULED";
 
         const country = match.area?.name
           ? league + " • " + match.area.name
@@ -399,19 +501,19 @@ async function loadMatches() {
         addText(
           card,
           "div",
-          formatDate(kickoff) + " • " + status,
+          formatDate(match.utcDate) + " • " + (match.status || "SCHEDULED"),
           "match-info"
         );
 
-        const button = document.createElement("button");
-        button.textContent = "Analyser ce match";
+        const selectButton = document.createElement("button");
+        selectButton.textContent = "Analyser ce match";
 
-        button.addEventListener("click", () => {
+        selectButton.addEventListener("click", () => {
           selectFixture(match);
           show("analysis");
         });
 
-        card.appendChild(button);
+        card.appendChild(selectButton);
         container.appendChild(card);
       });
     });
@@ -435,8 +537,14 @@ function selectFixture(match) {
   selectedFixture = match;
   lastAnalysis = null;
 
+  document.getElementById("analysis-mode").value = "fixture";
+  changeAnalysisMode();
+
   const home = match.homeTeam?.name || "Domicile";
   const away = match.awayTeam?.name || "Extérieur";
+
+  document.getElementById("manual-home-name").value = home;
+  document.getElementById("manual-away-name").value = away;
 
   const display = document.getElementById("selected-match");
   display.replaceChildren();
@@ -451,7 +559,296 @@ function selectFixture(match) {
   document.getElementById("analysis-message").textContent = "";
 }
 
+function changeAnalysisMode() {
+  const mode = document.getElementById("analysis-mode").value;
+  const fixtureCard = document.getElementById("fixture-selection-card");
+  const description = document.getElementById("mode-description");
+
+  if (mode === "fixture") {
+    fixtureCard.style.display = "block";
+    description.textContent =
+      "Cette analyse sera liée à un match programmé et pourra être enregistrée dans l'historique.";
+
+    if (!selectedFixture) {
+      document.getElementById("selected-match").textContent =
+        "Aucun match sélectionné. Choisis un match dans l'onglet Matchs.";
+    }
+  } else {
+    fixtureCard.style.display = "none";
+    description.textContent =
+      "Analyse libre : tu peux analyser deux équipes même sans match programmé.";
+  }
+
+  document.getElementById("analysis-message").textContent = "";
+}
+
+// ======================================
+// CATALOGUE DES CHAMPIONNATS
+// ======================================
+
+function extractCompetitions(data) {
+  const providers = data.providers || data.catalog || {};
+  const output = [];
+
+  function addProvider(providerName, value) {
+    if (!value) return;
+
+    const source =
+      value.competitions ||
+      value.leagues ||
+      value.response ||
+      value.data ||
+      [];
+
+    if (Array.isArray(source)) {
+      source.forEach(item => {
+        if (typeof item === "string") {
+          output.push({
+            provider: providerName,
+            name: item,
+            id: item
+          });
+        } else {
+          output.push({
+            provider: providerName,
+            name:
+              item.name ||
+              item.strLeague ||
+              item.league ||
+              item.competition ||
+              item.strLeagueAlternate ||
+              "Compétition inconnue",
+            id:
+              item.id ||
+              item.idLeague ||
+              item.idCompetition ||
+              item.code ||
+              item.leagueId ||
+              item.id_league ||
+              "",
+            country:
+              item.country ||
+              item.strCountry ||
+              item.area?.name ||
+              "",
+            raw: item
+          });
+        }
+      });
+    }
+  }
+
+  Object.entries(providers).forEach(([key, value]) => {
+    addProvider(key, value);
+  });
+
+  if (Array.isArray(data.competitions)) {
+    data.competitions.forEach(item => {
+      output.push({
+        provider: item.provider || "football-data",
+        name: item.name || item.strLeague || "Compétition inconnue",
+        id: item.id || item.idLeague || item.code || "",
+        country: item.country || "",
+        raw: item
+      });
+    });
+  }
+
+  return output;
+}
+
+async function loadCatalog() {
+  const message = document.getElementById("catalog-message");
+  const status = document.getElementById("catalog-status");
+
+  message.textContent = "Chargement du catalogue...";
+  status.textContent = "Récupération des compétitions...";
+
+  try {
+    const data = await api("/api/catalog");
+
+    catalogData = data;
+    catalogCompetitions = extractCompetitions(data);
+
+    populateProviderSelect();
+
+    message.textContent =
+      catalogCompetitions.length +
+      " compétitions récupérées dans le catalogue.";
+    message.className = "notice success";
+
+    status.textContent =
+      catalogCompetitions.length +
+      " compétitions chargées. Les équipes dépendent du fournisseur.";
+
+  } catch (error) {
+    catalogData = null;
+    message.textContent = "Erreur catalogue : " + error.message;
+    message.className = "notice error";
+    status.textContent = "Impossible de récupérer le catalogue.";
+  }
+}
+
+function populateProviderSelect() {
+  const select = document.getElementById("catalog-provider");
+
+  select.replaceChildren();
+
+  const providers = [...new Set(
+    catalogCompetitions.map(item => item.provider)
+  )];
+
+  if (!providers.length) {
+    addText(select, "option", "Aucun fournisseur disponible");
+    select.value = "";
+    return;
+  }
+
+  addText(select, "option", "Choisir un fournisseur");
+  select.options[0].value = "";
+
+  providers.forEach(provider => {
+    const option = document.createElement("option");
+    option.value = provider;
+    option.textContent = provider;
+    select.appendChild(option);
+  });
+
+  catalogProviderChanged();
+}
+
+function catalogProviderChanged() {
+  const provider = document.getElementById("catalog-provider").value;
+  const select = document.getElementById("catalog-competition");
+
+  select.replaceChildren();
+
+  const list = catalogCompetitions.filter(
+    item => item.provider === provider
+  );
+
+  addText(select, "option", "Choisir une compétition");
+  select.options[0].value = "";
+
+  list.forEach(item => {
+    const option = document.createElement("option");
+    option.value = String(item.id);
+    option.textContent =
+      item.name + (item.country ? " • " + item.country : "");
+    option.dataset.name = item.name;
+    select.appendChild(option);
+  });
+
+  document.getElementById("catalog-home-team").replaceChildren();
+  document.getElementById("catalog-away-team").replaceChildren();
+
+  addText(
+    document.getElementById("catalog-home-team"),
+    "option",
+    "Sélectionner une équipe"
+  );
+
+  addText(
+    document.getElementById("catalog-away-team"),
+    "option",
+    "Sélectionner une équipe"
+  );
+
+  document.getElementById("catalog-message").textContent =
+    list.length
+      ? list.length + " compétitions disponibles."
+      : "Aucune compétition disponible pour ce fournisseur.";
+}
+
+async function loadCatalogTeams() {
+  const provider = document.getElementById("catalog-provider").value;
+  const competitionSelect = document.getElementById("catalog-competition");
+  const competitionId = competitionSelect.value;
+  const message = document.getElementById("catalog-message");
+
+  const homeSelect = document.getElementById("catalog-home-team");
+  const awaySelect = document.getElementById("catalog-away-team");
+
+  if (!provider || !competitionId) return;
+
+  const competition = catalogCompetitions.find(
+    item => item.provider === provider &&
+    String(item.id) === String(competitionId)
+  );
+
+  message.textContent = "Chargement des équipes...";
+  message.className = "notice";
+
+  homeSelect.replaceChildren();
+  awaySelect.replaceChildren();
+
+  try {
+    const params = new URLSearchParams({ provider });
+
+    if (provider === "football-data") {
+      params.set("competitionId", competitionId);
+    } else if (provider === "thesportsdb") {
+      params.set("leagueId", competitionId);
+    } else {
+      throw new Error(
+        "La récupération des équipes n'est pas encore prise en charge pour ce fournisseur."
+      );
+    }
+
+    const data = await api("/api/catalog/teams?" + params.toString());
+
+    catalogTeams =
+      data.teams ||
+      data.response ||
+      data.data ||
+      [];
+
+    if (!Array.isArray(catalogTeams) || !catalogTeams.length) {
+      throw new Error("Aucune équipe trouvée pour cette compétition.");
+    }
+
+    addText(homeSelect, "option", "Choisir l'équipe à domicile");
+    homeSelect.options[0].value = "";
+
+    addText(awaySelect, "option", "Choisir l'équipe à l'extérieur");
+    awaySelect.options[0].value = "";
+
+    catalogTeams.forEach(item => {
+      const name =
+        typeof item === "string"
+          ? item
+          : item.name || item.strTeam || item.team?.name;
+
+      if (!name) return;
+
+      const homeOption = document.createElement("option");
+      homeOption.value = name;
+      homeOption.textContent = name;
+      homeSelect.appendChild(homeOption);
+
+      const awayOption = document.createElement("option");
+      awayOption.value = name;
+      awayOption.textContent = name;
+      awaySelect.appendChild(awayOption);
+    });
+
+    message.textContent =
+      catalogTeams.length + " équipes récupérées pour " +
+      (competition?.name || "cette compétition") + ".";
+    message.className = "notice success";
+
+  } catch (error) {
+    message.textContent = error.message;
+    message.className = "notice error";
+
+    addText(homeSelect, "option", "Équipes indisponibles");
+    addText(awaySelect, "option", "Équipes indisponibles");
+  }
+}
+
+// ======================================
 // ANALYSE POISSON
+// ======================================
 
 function parseForm(value) {
   const entries = value
@@ -460,7 +857,7 @@ function parseForm(value) {
     .filter(Boolean);
 
   if (entries.length < 3 || entries.length > 10) {
-    throw new Error("Entre 3 à 10 résultats pour chaque équipe.");
+    throw new Error("Entre 3 et 10 résultats pour chaque forme renseignée.");
   }
 
   return entries.map(entry => {
@@ -477,12 +874,32 @@ function parseForm(value) {
   });
 }
 
+function optionalForm(id) {
+  const value = document.getElementById(id).value.trim();
+  return value ? parseForm(value) : null;
+}
+
 async function runAnalysis() {
   const button = document.getElementById("analyze-button");
   const message = document.getElementById("analysis-message");
   const result = document.getElementById("analysis-result");
 
-  if (!selectedFixture) {
+  const mode = document.getElementById("analysis-mode").value;
+  const names = getTeamNames();
+
+  if (!names.home || !names.away) {
+    message.textContent = "Renseigne les noms des deux équipes.";
+    message.className = "notice error";
+    return;
+  }
+
+  if (names.home.toLowerCase() === names.away.toLowerCase()) {
+    message.textContent = "Choisis deux équipes différentes.";
+    message.className = "notice error";
+    return;
+  }
+
+  if (mode === "fixture" && !selectedFixture) {
     message.textContent = "Sélectionne d'abord un match dans l'onglet Matchs.";
     message.className = "notice error";
     return;
@@ -490,14 +907,41 @@ async function runAnalysis() {
 
   let homeForm;
   let awayForm;
+  let homeAwayForm = null;
+  let awayHomeForm = null;
 
   try {
     homeForm = parseForm(document.getElementById("home-form").value);
     awayForm = parseForm(document.getElementById("away-form").value);
+
+    homeAwayForm = optionalForm("home-away-form");
+    awayHomeForm = optionalForm("away-home-form");
+
   } catch (error) {
     message.textContent = error.message;
     message.className = "notice error";
     return;
+  }
+
+  const payload = {
+    home: {
+      name: names.home,
+      form: homeForm,
+      homeForm: homeForm
+    },
+    away: {
+      name: names.away,
+      form: awayForm,
+      awayForm: awayForm
+    }
+  };
+
+  if (homeAwayForm) payload.home.awayForm = homeAwayForm;
+  if (awayHomeForm) payload.away.homeForm = awayHomeForm;
+
+  if (mode === "fixture") {
+    payload.fixtureId = selectedFixture.id;
+    payload.matchStart = selectedFixture.utcDate;
   }
 
   button.disabled = true;
@@ -505,29 +949,22 @@ async function runAnalysis() {
   message.className = "notice";
   result.replaceChildren();
 
-  const homeName = selectedFixture.homeTeam?.name || "Domicile";
-  const awayName = selectedFixture.awayTeam?.name || "Extérieur";
-
   try {
-    const data = await api("/api/analyze", {
+    const endpoint =
+      mode === "fixture" ? "/api/analyze" : "/api/analyze/manual";
+
+    const data = await api(endpoint, {
       method: "POST",
-      body: JSON.stringify({
-        fixtureId: selectedFixture.id,
-        matchStart: selectedFixture.utcDate,
-        home: {
-          name: homeName,
-          form: homeForm
-        },
-        away: {
-          name: awayName,
-          form: awayForm
-        }
-      })
+      body: JSON.stringify(payload)
     });
 
     lastAnalysis = data;
 
-    message.textContent = "Analyse calculée et enregistrée avec succès.";
+    message.textContent =
+      mode === "fixture"
+        ? "Analyse calculée et enregistrée avec succès."
+        : "Analyse manuelle calculée avec succès.";
+
     message.className = "notice success";
 
     displayAnalysis(data, result);
@@ -537,29 +974,47 @@ async function runAnalysis() {
     message.className = "notice error";
   } finally {
     button.disabled = false;
+    loadUsage();
   }
 }
 
 function displayAnalysis(data, container) {
   container.replaceChildren();
 
-  const analysis = data.analysis;
+  const analysis = data.analysis || data;
+  const probabilities = analysis.probabilities;
+  const goals = analysis.expectedGoals;
 
-  if (!analysis || !analysis.probabilities) {
+  if (!probabilities) {
     addText(container, "p", "Résultat d'analyse indisponible.", "error");
     return;
   }
-
-  const probabilities = analysis.probabilities;
-  const goals = analysis.expectedGoals;
 
   const card = document.createElement("div");
   card.className = "card";
 
   addText(card, "h3", "Résultats de l'analyse");
-  addText(card, "p", data.teams.home + " - " + data.teams.away, "green");
 
-  addText(card, "p", "Buts attendus : " + goals.home + " - " + goals.away, "notice");
+  const homeName =
+    data.teams?.home ||
+    data.home?.name ||
+    getTeamNames().home;
+
+  const awayName =
+    data.teams?.away ||
+    data.away?.name ||
+    getTeamNames().away;
+
+  addText(card, "p", homeName + " - " + awayName, "green");
+
+  if (goals) {
+    addText(
+      card,
+      "p",
+      "Buts attendus : " + goals.home + " - " + goals.away,
+      "notice"
+    );
+  }
 
   const grid = document.createElement("div");
   grid.className = "result-grid";
@@ -580,31 +1035,50 @@ function displayAnalysis(data, container) {
     item.className = "result-item";
 
     addText(item, "span", label, "small");
-    addText(item, "strong", value + "%");
+    addText(
+      item,
+      "strong",
+      value === undefined || value === null ? "—" : value + "%"
+    );
 
     grid.appendChild(item);
   });
 
   card.appendChild(grid);
 
-  addText(card, "p", analysis.warning, "notice");
+  if (analysis.warning) {
+    addText(card, "p", analysis.warning, "notice");
+  }
+
+  if (modeDescription(data)) {
+    addText(card, "p", modeDescription(data), "small");
+  }
 
   container.appendChild(card);
 }
 
-// RECHERCHE INTERNET
+function modeDescription(data) {
+  if (data.saved === false) {
+    return "Analyse manuelle : non enregistrée dans l'historique des matchs.";
+  }
+  return "";
+}
+
+// ======================================
+// RECHERCHE INTERNET INDÉPENDANTE
+// ======================================
 
 async function runResearch() {
   const button = document.getElementById("research-button");
   const container = document.getElementById("research-result");
 
-  if (!selectedFixture) {
-    container.textContent = "Sélectionne d'abord un match.";
+  const names = getTeamNames();
+
+  if (!names.home || !names.away) {
+    container.textContent =
+      "Renseigne les noms des deux équipes avant de lancer la recherche.";
     return;
   }
-
-  const home = selectedFixture.homeTeam?.name;
-  const away = selectedFixture.awayTeam?.name;
 
   button.disabled = true;
   container.replaceChildren();
@@ -612,8 +1086,8 @@ async function runResearch() {
 
   try {
     const query =
-      "/api/research?home=" + encodeURIComponent(home) +
-      "&away=" + encodeURIComponent(away);
+      "/api/research?home=" + encodeURIComponent(names.home) +
+      "&away=" + encodeURIComponent(names.away);
 
     const data = await api(query);
 
@@ -623,9 +1097,9 @@ async function runResearch() {
     summary.className = "card";
 
     addText(summary, "h3", "Recherche terminée", "green");
-    addText(summary, "p", "Moteur : " + data.searchEngine, "notice");
-    addText(summary, "p", "Recherches effectuées : " + data.searchesGenerated, "notice");
-    addText(summary, "p", "Articles trouvés : " + data.articlesFound, "notice");
+    addText(summary, "p", "Moteur : " + (data.searchEngine || "Non précisé"), "notice");
+    addText(summary, "p", "Recherches effectuées : " + (data.searchesGenerated ?? "—"), "notice");
+    addText(summary, "p", "Articles trouvés : " + (data.articlesFound ?? data.articles?.length ?? 0), "notice");
 
     if (data.researchUsage) {
       addText(
@@ -650,7 +1124,8 @@ async function runResearch() {
         addText(
           searchesCard,
           "p",
-          search.category + " • " + search.results + " résultat(s)",
+          (search.category || "Recherche") + " • " +
+          (search.results ?? 0) + " résultat(s)",
           "notice"
         );
       });
@@ -664,18 +1139,32 @@ async function runResearch() {
 
       addText(absenceCard, "h3", "⚠️ Absences possibles");
 
+      addText(
+        absenceCard,
+        "p",
+        "Ces informations sont des pistes trouvées en ligne, pas des absences confirmées.",
+        "notice"
+      );
+
       data.possibleAbsences.forEach(item => {
-        addText(absenceCard, "p", item.title);
-        addText(absenceCard, "p", item.status + " • " + item.source, "notice");
+        addText(absenceCard, "p", item.title || "Information");
+        addText(
+          absenceCard,
+          "p",
+          (item.status || "À vérifier") + " • " + (item.source || "Source inconnue"),
+          "notice"
+        );
 
-        const link = document.createElement("a");
-        link.href = item.link;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = "Consulter la source";
-        absenceCard.appendChild(link);
+        if (item.link) {
+          const link = document.createElement("a");
+          link.href = item.link;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = "Consulter la source";
+          absenceCard.appendChild(link);
+        }
 
-        addText(absenceCard, "p", item.warning, "notice");
+        addText(absenceCard, "p", item.warning || "Information à vérifier.", "notice");
         addText(absenceCard, "hr", "");
       });
 
@@ -694,16 +1183,29 @@ async function runResearch() {
         const block = document.createElement("div");
         block.className = "article";
 
-        const link = document.createElement("a");
-        link.href = article.link;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = article.title;
+        if (article.link) {
+          const link = document.createElement("a");
+          link.href = article.link;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = article.title || "Consulter l'article";
+          block.appendChild(link);
+        } else {
+          addText(block, "strong", article.title || "Article");
+        }
 
-        block.appendChild(link);
+        addText(
+          block,
+          "p",
+          (article.source || "Source inconnue") +
+          " • " + formatDate(article.publishedAt)
+        );
 
-        addText(block, "p", article.source + " • " + formatDate(article.publishedAt));
-        addText(block, "p", article.description || "Aucun extrait disponible.");
+        addText(
+          block,
+          "p",
+          article.description || "Aucun extrait disponible."
+        );
 
         articlesCard.appendChild(block);
       });
@@ -716,9 +1218,18 @@ async function runResearch() {
 
     addText(limitations, "h3", "Limites de la recherche");
 
-    (data.limitations || []).forEach(item => {
-      addText(limitations, "p", "• " + item, "notice");
-    });
+    if (data.limitations?.length) {
+      data.limitations.forEach(item => {
+        addText(limitations, "p", "• " + item, "notice");
+      });
+    } else {
+      addText(
+        limitations,
+        "p",
+        "Les résultats dépendent des articles disponibles dans les sources consultées.",
+        "notice"
+      );
+    }
 
     container.appendChild(limitations);
 
@@ -729,7 +1240,12 @@ async function runResearch() {
       addText(errors, "h3", "Certaines recherches ont échoué");
 
       data.errors.forEach(error => {
-        addText(errors, "p", error.message, "notice error");
+        addText(
+          errors,
+          "p",
+          error.message || String(error),
+          "notice error"
+        );
       });
 
       container.appendChild(errors);
@@ -740,10 +1256,13 @@ async function runResearch() {
     addText(container, "p", "Erreur de recherche : " + error.message, "error");
   } finally {
     button.disabled = false;
+    loadUsage();
   }
 }
 
+// ======================================
 // HISTORIQUE
+// ======================================
 
 async function loadHistory() {
   const container = document.getElementById("history-list");
@@ -785,11 +1304,14 @@ async function loadHistory() {
     });
 
   } catch (error) {
-    container.textContent = "Impossible de charger l'historique : " + error.message;
+    container.textContent =
+      "Impossible de charger l'historique : " + error.message;
   }
 }
 
+// ======================================
 // QUOTAS
+// ======================================
 
 async function loadUsage() {
   try {
@@ -797,6 +1319,10 @@ async function loadUsage() {
 
     const quotas = data.quotas;
     const research = data.research;
+
+    if (!quotas || !research) {
+      throw new Error("Structure des quotas non reconnue.");
+    }
 
     document.getElementById("dashboard-usage").textContent =
       quotas.daily.used + "/" + quotas.daily.limit;
@@ -839,7 +1365,9 @@ async function loadUsage() {
   }
 }
 
+// ======================================
 // TEST DES FOURNISSEURS
+// ======================================
 
 async function testProviders() {
   const button = document.getElementById("providers-button");
@@ -918,11 +1446,14 @@ async function testProviders() {
   }
 }
 
+// ======================================
 // INITIALISATION
+// ======================================
 
 document.addEventListener("DOMContentLoaded", () => {
   loadUsage();
   loadMatches();
+  loadCatalog();
 });
 </script>
 
